@@ -34,10 +34,25 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               />
             </a>{" "}
             <a href="https://img.shields.io" target="_blank" rel="noreferrer">
+              <img alt="Frontend Badge" src="https://img.shields.io/badge/frontend-Next.js-000000?logo=nextdotjs" />
+            </a>{" "}
+            <a href="https://img.shields.io" target="_blank" rel="noreferrer">
+              <img alt="API Badge" src="https://img.shields.io/badge/api-Elysia-1f2937" />
+            </a>{" "}
+            <a href="https://img.shields.io" target="_blank" rel="noreferrer">
               <img alt="Runtime Badge" src="https://img.shields.io/badge/runtime-Bun-black" />
             </a>{" "}
             <a href="https://img.shields.io" target="_blank" rel="noreferrer">
               <img alt="Database Badge" src="https://img.shields.io/badge/database-MariaDB-003545" />
+            </a>{" "}
+            <a href="https://img.shields.io" target="_blank" rel="noreferrer">
+              <img alt="Container Badge" src="https://img.shields.io/badge/container-Podman-892CA0?logo=podman" />
+            </a>{" "}
+            <a href="https://img.shields.io" target="_blank" rel="noreferrer">
+              <img alt="Mode Badge" src="https://img.shields.io/badge/mode-rootless-2ea44f" />
+            </a>{" "}
+            <a href="https://img.shields.io" target="_blank" rel="noreferrer">
+              <img alt="DB Admin Badge" src="https://img.shields.io/badge/db_admin-phpMyAdmin-6C78AF" />
             </a>
           </div>
           <div>

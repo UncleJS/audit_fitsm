@@ -1,8 +1,13 @@
 # Audit FitSM
 
 ![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
+![Frontend: Next.js](https://img.shields.io/badge/frontend-Next.js-000000?logo=nextdotjs)
+![API: Elysia](https://img.shields.io/badge/api-Elysia-1f2937)
 ![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-black)
 ![Database: MariaDB](https://img.shields.io/badge/database-MariaDB-003545)
+![Container: Podman](https://img.shields.io/badge/container-Podman-892CA0?logo=podman)
+![Mode: rootless](https://img.shields.io/badge/mode-rootless-2ea44f)
+![DB Admin: phpMyAdmin](https://img.shields.io/badge/db_admin-phpMyAdmin-6C78AF)
 
 Audit FitSM is a purpose-built tool designed to support organizations in conducting efficient, structured, and repeatable audits aligned with the FitSM framework. FitSM is a lightweight, pragmatic service management framework designed to support IT service management (ITSM) in a simple and effective way, making it particularly suitable for small to medium-sized organizations or teams seeking to implement best practices without the overhead of more complex frameworks.
 
@@ -48,6 +53,8 @@ Before running this stack, ensure:
 - Rootless `podman` installed and working
 - `bash`, `git`, and `systemctl` installed
 - Host ports `1260`, `1261`, `1262`, `1263` are free
+
+Application/infrastructure stack used here: Next.js frontend, Elysia API, Bun runtime, MariaDB database, phpMyAdmin for DB administration, and rootless Podman for container execution.
 
 [Go to TOC](#table-of-contents)
 
