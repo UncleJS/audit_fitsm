@@ -70,6 +70,27 @@ const isSystemAdmin = (auth: AuthPayload | null): boolean => {
   return Object.values(auth.orgRoles).flat().includes("system_admin");
 };
 
+const getUserScope = async (
+  userId: number
+): Promise<{ orgIds: number[]; hasSystemAdmin: boolean }> => {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT our.org_id, r.code AS role_code
+     FROM org_user_roles our
+     JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
+     WHERE our.user_id = ?
+       AND our.archived_at IS NULL`,
+    [userId]
+  );
+
+  const orgIds = Array.from(new Set(rows.map((row) => Number(row.org_id)).filter((value) => Number.isFinite(value))));
+  const hasSystemAdminRole = rows.some((row) => String(row.role_code) === "system_admin");
+
+  return {
+    orgIds,
+    hasSystemAdmin: hasSystemAdminRole
+  };
+};
+
 const getAccessibleOrgIds = (auth: AuthPayload | null): number[] => {
   if (!auth) return [];
   return Object.entries(auth.orgRoles)
@@ -187,7 +208,8 @@ const createClientSchema = z.object({
 
 const createAuditSchema = z.object({
   name: z.string().trim().min(2).max(255),
-  auditDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+  auditDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  certGoalLevel: z.coerce.number().int().min(1).max(5).default(3)
 });
 
 const updateStatusSchema = z.object({
@@ -606,11 +628,6 @@ const app = new Elysia()
       [payload.email]
     );
 
-    if (existingUsers.length) {
-      set.status = 409;
-      return { error: "User with this email already exists" };
-    }
-
     const [roleRows] = await db.query<RowDataPacket[]>(
       `SELECT id, code
        FROM roles
@@ -634,13 +651,33 @@ const app = new Elysia()
       algorithm: "argon2id"
     });
 
-    const [insertUser] = await db.execute(
-      `INSERT INTO users (email, password_hash, display_name, auth_provider)
-       VALUES (?, ?, ?, 'local')`,
-      [payload.email, passwordHash, payload.displayName]
-    );
+    let userId: number;
+    if (existingUsers.length) {
+      userId = Number(existingUsers[0].id);
 
-    const userId = Number((insertUser as any).insertId);
+      const scope = await getUserScope(userId);
+      const hasOtherOrgs = scope.orgIds.some((id) => id !== orgId);
+      if (hasOtherOrgs && !scope.hasSystemAdmin) {
+        set.status = 409;
+        return {
+          error: "User is already scoped to another client. Non-system-admin users can belong to only one client"
+        };
+      }
+
+      await db.execute(
+        `UPDATE users
+         SET display_name = ?, password_hash = ?, is_active = 1, updated_at = UTC_TIMESTAMP(3)
+         WHERE id = ? AND archived_at IS NULL`,
+        [payload.displayName, passwordHash, userId]
+      );
+    } else {
+      const [insertUser] = await db.execute(
+        `INSERT INTO users (email, password_hash, display_name, auth_provider)
+         VALUES (?, ?, ?, 'local')`,
+        [payload.email, passwordHash, payload.displayName]
+      );
+      userId = Number((insertUser as any).insertId);
+    }
 
     for (const role of roleRows) {
       await db.execute(
@@ -698,6 +735,15 @@ const app = new Elysia()
       );
 
       return { userId, roles: [], archivedInOrg: true };
+    }
+
+    const scope = await getUserScope(userId);
+    const hasOtherOrgs = scope.orgIds.some((id) => id !== orgId);
+    if (hasOtherOrgs && !scope.hasSystemAdmin) {
+      set.status = 409;
+      return {
+        error: "User is already scoped to another client. Non-system-admin users can belong to only one client"
+      };
     }
 
     const [roleRows] = await db.query<RowDataPacket[]>(
@@ -793,11 +839,11 @@ const app = new Elysia()
 
     if (inScopeId) {
       await db.execute(
-        `INSERT INTO audit_scope_targets (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
-         SELECT ?, p.id, p.default_cert_goal_level, NULL, ?, ?
-         FROM processes p
-         WHERE p.archived_at IS NULL`,
-        [auditId, inScopeId, auth.sub]
+         `INSERT INTO audit_scope_targets (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
+          SELECT ?, p.id, ?, NULL, ?, ?
+          FROM processes p
+          WHERE p.archived_at IS NULL`,
+        [auditId, payload.certGoalLevel, inScopeId, auth.sub]
       );
     }
 
@@ -888,6 +934,10 @@ const app = new Elysia()
     if (!access.allowed) {
       set.status = 403;
       return access.reason ? { error: access.reason } : forbidden;
+    }
+    if (String(access.status) !== "draft") {
+      set.status = 409;
+      return { error: "Scope and cert goals are editable only while audit is draft" };
     }
     if (!payload.items?.length) {
       set.status = 400;
@@ -1539,7 +1589,7 @@ const app = new Elysia()
         canLeadEdit,
         canExport: canAuditorEdit,
         canManageStatus: canLeadEdit,
-        canManageScopeTargets: canLeadEdit,
+        canManageScopeTargets: canLeadEdit && auditStatus === "draft",
         isLockedForNonLead,
         allowedStatusTransitions: statusTransitions
       },

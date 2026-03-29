@@ -16,17 +16,40 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const resolvedApiUrl = apiUrlFromEnv || `${window.location.protocol}//${window.location.hostname}:1261`;
     if (!apiUrlFromEnv) {
-      setApiUrl(`${window.location.protocol}//${window.location.hostname}:1261`);
+      setApiUrl(resolvedApiUrl);
     }
 
-    const token = window.sessionStorage.getItem("audit_fitsm_token") || "";
-    if (token) {
-      window.location.href = "/clients";
-      return;
-    }
+    let cancelled = false;
+    const init = async () => {
+      const token = window.sessionStorage.getItem("audit_fitsm_token") || "";
+      if (token) {
+        try {
+          const meRes = await fetch(`${resolvedApiUrl}/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (meRes.ok) {
+            window.location.href = "/clients";
+            return;
+          }
+        } catch {
+          // network/auth failure -> force fresh login
+        }
 
-    setMounted(true);
+        window.sessionStorage.removeItem("audit_fitsm_token");
+      }
+
+      if (!cancelled) {
+        setMounted(true);
+      }
+    };
+
+    void init();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = async (event: FormEvent<HTMLFormElement>) => {

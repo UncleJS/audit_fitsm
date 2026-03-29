@@ -3,7 +3,7 @@ set -euo pipefail
 
 PORTS=("$@")
 if [[ "${#PORTS[@]}" -eq 0 ]]; then
-  PORTS=(1260 1261 1262)
+  PORTS=(1260 1261 1262 1263)
 fi
 
 is_port_in_use() {

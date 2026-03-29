@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 
 require_prereqs
-"${PROJECT_ROOT}/scripts/preflight-ports.sh" 1260 1261 1262
+"${PROJECT_ROOT}/scripts/preflight-ports.sh" 1260 1261 1262 1263
 install_quadlets
 install_app_units
 start_services

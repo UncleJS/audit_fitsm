@@ -22,6 +22,7 @@ fi
 SERVICES=(
   "${API_SERVICE}"
   "${WEB_SERVICE}"
+  "${PHPMYADMIN_SERVICE}"
   "${DEV_SERVICE}"
   "${DB_SERVICE}"
   "${POD_SERVICE}"
@@ -36,6 +37,7 @@ PODS=(
 CONTAINERS=(
   "${PROJECT_PREFIX}-dev"
   "${PROJECT_PREFIX}-db"
+  "${PROJECT_PREFIX}-phpmyadmin"
   "${PROJECT_PREFIX}-dev-ci"
   "${PROJECT_PREFIX}-db-ci"
 )

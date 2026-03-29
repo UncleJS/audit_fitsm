@@ -12,11 +12,13 @@ BUILD_SERVICE="${PROJECT_PREFIX}-dev-build.service"
 POD_SERVICE="${PROJECT_PREFIX}-pod-pod.service"
 API_SERVICE="${PROJECT_PREFIX}-api.service"
 WEB_SERVICE="${PROJECT_PREFIX}-web.service"
+PHPMYADMIN_SERVICE="${PROJECT_PREFIX}-phpmyadmin.service"
 
 QUADLET_FILES=(
   "${PROJECT_PREFIX}-pod.pod"
   "${PROJECT_PREFIX}-db.container"
   "${PROJECT_PREFIX}-dev.container"
+  "${PROJECT_PREFIX}-phpmyadmin.container"
   "${PROJECT_PREFIX}-dev.build"
   "${PROJECT_PREFIX}-dev.volume"
   "${PROJECT_PREFIX}-db.volume"
@@ -76,6 +78,7 @@ start_services() {
   systemctl --user start "${BUILD_SERVICE}"
   systemctl --user start "${POD_SERVICE}"
   systemctl --user start "${DB_SERVICE}"
+  systemctl --user start "${PHPMYADMIN_SERVICE}"
   systemctl --user start "${DEV_SERVICE}"
   systemctl --user start "${API_SERVICE}"
   systemctl --user start "${WEB_SERVICE}"
@@ -84,6 +87,7 @@ start_services() {
 stop_services() {
   systemctl --user stop "${WEB_SERVICE}" || true
   systemctl --user stop "${API_SERVICE}" || true
+  systemctl --user stop "${PHPMYADMIN_SERVICE}" || true
   systemctl --user stop "${DEV_SERVICE}" || true
   systemctl --user stop "${DB_SERVICE}" || true
   systemctl --user stop "${POD_SERVICE}" || true
@@ -93,6 +97,7 @@ status_services() {
   systemctl --user status \
     "${POD_SERVICE}" \
     "${DB_SERVICE}" \
+    "${PHPMYADMIN_SERVICE}" \
     "${DEV_SERVICE}" \
     "${API_SERVICE}" \
     "${WEB_SERVICE}" \

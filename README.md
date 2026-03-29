@@ -24,6 +24,7 @@ Operational-sheets implementation for `FitSM-6_Assessment_and_Audit_Tool_V3.0.3.
 - Web UI: `1260`
 - API: `1261`
 - MariaDB (host published): `1262`
+- phpMyAdmin (manual login): `1263`
 
 [Go to TOC](#table-of-contents)
 
@@ -59,6 +60,7 @@ systemctl --user daemon-reload
 systemctl --user start audit-fitsm-dev-build.service
 systemctl --user start audit-fitsm-pod-pod.service
 systemctl --user start audit-fitsm-db.service
+systemctl --user start audit-fitsm-phpmyadmin.service
 systemctl --user start audit-fitsm-dev.service
 systemctl --user start audit-fitsm-api.service
 systemctl --user start audit-fitsm-web.service
@@ -85,6 +87,7 @@ podman exec audit-fitsm-dev bun run --cwd /workspace/apps/api import:fitsm -- /w
 5. Open the UI flow:
 
 - `http://localhost:1260/`
+- `http://localhost:1263/` (phpMyAdmin login, no auto-login)
 - Create/select a client
 - Register a new audit for that client
 - Open `/audits/:auditId` workspace to assess grouped requirements for that audit
@@ -140,7 +143,7 @@ scripts/health-readiness.sh strict
 - `scripts/uninstall.sh [--purge-data]`
 - `scripts/start.sh` / `scripts/stop.sh` / `scripts/restart.sh`
 - `scripts/status.sh`
-- `scripts/logs.sh [pod|db|dev|api|web|all]`
+- `scripts/logs.sh [pod|db|pma|phpmyadmin|dev|api|web|all]`
 - `scripts/migrate.sh`
 - `scripts/run-api.sh`
 - `scripts/run-web.sh`

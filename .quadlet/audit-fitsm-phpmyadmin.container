@@ -1,0 +1,16 @@
+[Unit]
+Description=Audit FitSM phpMyAdmin
+After=network-online.target audit-fitsm-pod-pod.service audit-fitsm-db.service
+Wants=network-online.target
+Requires=audit-fitsm-pod-pod.service audit-fitsm-db.service
+
+[Container]
+ContainerName=audit-fitsm-phpmyadmin
+Pod=audit-fitsm-pod.pod
+Image=docker.io/library/phpmyadmin:5
+Environment=PMA_HOST=127.0.0.1
+Environment=PMA_PORT=3306
+Environment=UPLOAD_LIMIT=128M
+
+[Install]
+WantedBy=default.target

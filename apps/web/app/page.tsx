@@ -4,6 +4,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import DateOnlyInput from "./components/date-only-input";
 import { formatDateOnly } from "./lib/date-format";
+import { decodeHtmlEntities } from "./lib/text-format";
 
 type ClientRow = { id: number; name: string };
 type AuditRow = {
@@ -88,9 +89,9 @@ export default function HomePage() {
     "updated_desc" | "audit_date_desc" | "audit_date_asc" | "name_asc" | "status_asc"
   >("updated_desc");
   const [statusSavingByAuditId, setStatusSavingByAuditId] = useState<Record<string, boolean>>({});
-  const [newClientName, setNewClientName] = useState("");
   const [newAuditName, setNewAuditName] = useState("");
   const [newAuditDate, setNewAuditDate] = useState("");
+  const [newAuditCertGoalLevel, setNewAuditCertGoalLevel] = useState("3");
   const [message, setMessage] = useState("");
 
   const tokenMissing = useMemo(() => !authToken, [authToken]);
@@ -102,6 +103,12 @@ export default function HomePage() {
     });
 
     if (!res.ok) {
+      if (res.status === 401 && typeof window !== "undefined") {
+        window.sessionStorage.removeItem("audit_fitsm_token");
+        setAuthToken("");
+        window.location.href = "/login";
+        return;
+      }
       setMessage("Unable to load clients. Check token/permissions.");
       return;
     }
@@ -533,29 +540,6 @@ export default function HomePage() {
     }
   };
 
-  const createClient = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setMessage("");
-
-    const res = await fetch(`${apiUrl}/clients`, {
-      method: "POST",
-      headers: authHeaders(authToken, true),
-      body: JSON.stringify({ name: newClientName })
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setMessage(body.error ?? "Client creation failed.");
-      return;
-    }
-
-    const created = await res.json();
-    setNewClientName("");
-    setMessage(`Client '${created.name}' created.`);
-    await loadClients();
-    setSelectedClientId(Number(created.id));
-  };
-
   const createAudit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage("");
@@ -568,7 +552,11 @@ export default function HomePage() {
     const res = await fetch(`${apiUrl}/orgs/${selectedClientId}/audits`, {
       method: "POST",
       headers: authHeaders(authToken, true),
-      body: JSON.stringify({ name: newAuditName, auditDate: newAuditDate })
+      body: JSON.stringify({
+        name: newAuditName,
+        auditDate: newAuditDate,
+        certGoalLevel: Number(newAuditCertGoalLevel || "3")
+      })
     });
 
     if (!res.ok) {
@@ -586,8 +574,8 @@ export default function HomePage() {
       <section className="card">
         <h1>Audit FitSM Workspace</h1>
         <p>
-          Register a client, create a new audit, and open the audit workspace with all
-          related items grouped under that audit.
+          Select a client, create a new audit, and open the audit workspace with all
+          related items grouped under that audit. Client creation is managed on the Admin page.
         </p>
         <p>
           API docs: <a href={`${apiUrl}/docs`}>{`${apiUrl}/docs`}</a>
@@ -597,33 +585,28 @@ export default function HomePage() {
 
       <section className="card grid">
         <h2>1) Clients</h2>
-        <form onSubmit={createClient} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input
-            value={newClientName}
-            onChange={(event) => setNewClientName(event.target.value)}
-            placeholder="New client name"
-            disabled={tokenMissing}
-            required
-          />
-          <button type="submit" disabled={tokenMissing}>
-            Create Client
-          </button>
-        </form>
-
         <div>
           <label htmlFor="client-select">Selected client:</label>{" "}
-          <select
-            id="client-select"
-            value={selectedClientId ?? ""}
-            disabled={tokenMissing}
-            onChange={(event) => setSelectedClientId(Number(event.target.value))}
-          >
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
+          {clients.length === 0 ? (
+            <>
+              <span>No clients available. Create one from </span>
+              <a href="/admin">Admin</a>
+              <span>.</span>
+            </>
+          ) : (
+            <select
+              id="client-select"
+              value={selectedClientId ?? ""}
+              disabled={tokenMissing}
+              onChange={(event) => setSelectedClientId(Number(event.target.value))}
+            >
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {decodeHtmlEntities(client.name)}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </section>
 
@@ -637,6 +620,20 @@ export default function HomePage() {
             disabled={tokenMissing}
             required
           />
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Cert goal
+            <select
+              value={newAuditCertGoalLevel}
+              onChange={(event) => setNewAuditCertGoalLevel(event.target.value)}
+              disabled={tokenMissing}
+            >
+              <option value="1">1 - Initial</option>
+              <option value="2">2 - Repeatable / Partial</option>
+              <option value="3">3 - Defined / Complete</option>
+              <option value="4">4 - Managed / Quantitatively Controlled</option>
+              <option value="5">5 - Optimizing</option>
+            </select>
+          </label>
           <DateOnlyInput
             id="new-audit-date"
             name="auditDate"
@@ -684,7 +681,7 @@ export default function HomePage() {
             <tbody>
               {trendLatest.map((item) => (
                 <tr key={`trend-${item.auditId}`}>
-                  <td>{item.name}</td>
+                  <td>{decodeHtmlEntities(item.name)}</td>
                   <td>{formatDateOnly(item.auditDate)}</td>
                   <td>{item.status}</td>
                   <td>
@@ -718,7 +715,7 @@ export default function HomePage() {
                     textDecoration: "none"
                   }}
                 >
-                  #{audit.id} {audit.name}
+                    #{audit.id} {decodeHtmlEntities(audit.name)}
                 </a>
               ))}
             </div>
@@ -793,7 +790,7 @@ export default function HomePage() {
                 return (
                 <tr key={audit.id}>
                   <td>{audit.id}</td>
-                  <td>{audit.name}</td>
+                  <td>{decodeHtmlEntities(audit.name)}</td>
                   <td>
                     <span
                       style={{

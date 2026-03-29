@@ -142,6 +142,17 @@ const main = async () => {
       fail(`integration-suite failed with exit code ${run.status ?? "unknown"}`);
     }
     checks.push("integration:suite");
+
+    const webRegression = spawnSync("bun", ["test", "app/lib/text-format.test.ts"], {
+      cwd: `${process.cwd()}/../web`,
+      env: { ...process.env },
+      stdio: "inherit"
+    });
+
+    if (webRegression.status !== 0) {
+      fail(`web text-entity regression failed with exit code ${webRegression.status ?? "unknown"}`);
+    }
+    checks.push("web:text-entity-regression");
   }
 
   await db.end();

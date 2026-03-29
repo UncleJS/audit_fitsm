@@ -4,6 +4,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { formatDateOnly, formatLocalTimestamp } from "../../lib/date-format";
+import { decodeHtmlEntities } from "../../lib/text-format";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:1261";
 const demoToken = process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "";
@@ -43,6 +44,7 @@ export default function AuditWorkspacePage() {
   const canManageScopeTargets = workspace?.permissions?.canManageScopeTargets ?? false;
   const isLockedForNonLead = workspace?.permissions?.isLockedForNonLead ?? false;
   const allowedStatusTransitions = workspace?.permissions?.allowedStatusTransitions ?? [];
+  const auditStatus = String(workspace?.audit?.status ?? "");
 
   const loadWorkspace = async () => {
     const res = await fetch(`${apiUrl}/audits/${auditId}/workspace`, {
@@ -51,6 +53,12 @@ export default function AuditWorkspacePage() {
     });
 
     if (!res.ok) {
+      if (res.status === 401 && typeof window !== "undefined") {
+        window.sessionStorage.removeItem("audit_fitsm_token");
+        setAuthToken("");
+        window.location.href = "/login";
+        return;
+      }
       setWorkspace(null);
       setMessage("Unable to load audit workspace.");
       return;
@@ -574,12 +582,12 @@ export default function AuditWorkspacePage() {
     <main className="container grid">
       <section className="card">
         <nav aria-label="Breadcrumb" style={{ marginBottom: 8 }}>
-          <a href="/clients">Clients</a> <span aria-hidden="true">/</span> <span>{workspace.audit.name}</span>
+          <a href="/clients">Clients</a> <span aria-hidden="true">/</span> <span>{decodeHtmlEntities(workspace.audit.name)}</span>
         </nav>
-        <h1>{workspace.audit.name}</h1>
+        <h1>{decodeHtmlEntities(workspace.audit.name)}</h1>
         <p>
-          Client: <strong>{workspace.audit.client_name}</strong> | Audit date: {formatDateOnly(workspace.audit.audit_date)} |
-          Status: {workspace.audit.status}
+          Client: <strong>{decodeHtmlEntities(workspace.audit.client_name)}</strong> | Audit date: {formatDateOnly(workspace.audit.audit_date)} |
+          Status: {auditStatus}
         </p>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <label>
@@ -589,7 +597,7 @@ export default function AuditWorkspacePage() {
               onChange={(event) => setStatusEdit(event.target.value)}
               disabled={!canManageStatus}
             >
-              <option value={workspace.audit.status}>{workspace.audit.status}</option>
+              <option value={auditStatus}>{auditStatus}</option>
               {allowedStatusTransitions.map((status: string) => (
                 <option key={status} value={status}>
                   {status}
@@ -597,7 +605,7 @@ export default function AuditWorkspacePage() {
               ))}
             </select>
           </label>
-          <button onClick={saveStatus} disabled={!canManageStatus || statusEdit === workspace.audit.status}>
+          <button onClick={saveStatus} disabled={!canManageStatus || statusEdit === auditStatus}>
             Save Status
           </button>
         </div>
@@ -658,6 +666,9 @@ export default function AuditWorkspacePage() {
             Compact
           </button>
         </div>
+        <p style={{ color: auditStatus === "draft" ? "#86efac" : "#ffcc80" }}>
+          Scope and cert goals are {auditStatus === "draft" ? "editable" : "locked"} while status is <strong>{auditStatus || "unknown"}</strong>.
+        </p>
         {isLockedForNonLead ? (
           <p style={{ color: "#ffcc80" }}>
             This audit is completed; editing is locked for non-lead roles.
@@ -716,8 +727,8 @@ export default function AuditWorkspacePage() {
             return (
               <>
                 <h2>
-                  {group.processCode} - {group.processName} ({group.processAbbreviation})
-                </h2>
+                   {group.processCode} - {decodeHtmlEntities(group.processName)} ({decodeHtmlEntities(group.processAbbreviation)})
+                 </h2>
                 <div
                   style={{
                     display: "flex",
@@ -752,7 +763,7 @@ export default function AuditWorkspacePage() {
                     >
                       {(workspace.dropdowns?.scopeOptions ?? []).map((scope: any) => (
                         <option key={scope.code} value={scope.code}>
-                          {scope.label}
+                          {decodeHtmlEntities(scope.label)}
                         </option>
                       ))}
                     </select>
@@ -784,7 +795,7 @@ export default function AuditWorkspacePage() {
                     >
                       {(workspace.dropdowns?.targetLevels ?? []).map((level: any) => (
                         <option key={`cert-${group.processCode}-${level.level}`} value={String(level.level)}>
-                          {level.level} - {level.label}
+                           {level.level} - {decodeHtmlEntities(level.label)}
                         </option>
                       ))}
                     </select>
@@ -817,7 +828,7 @@ export default function AuditWorkspacePage() {
                       <option value="">(none)</option>
                       {(workspace.dropdowns?.targetLevels ?? []).map((level: any) => (
                         <option key={`custom-${group.processCode}-${level.level}`} value={String(level.level)}>
-                          {level.level} - {level.label}
+                           {level.level} - {decodeHtmlEntities(level.label)}
                         </option>
                       ))}
                     </select>
@@ -860,7 +871,7 @@ export default function AuditWorkspacePage() {
                           <strong>{req.requirementCode}</strong>
                         </div>
                         <div style={{ marginTop: isWorkspaceCompact ? 2 : 4, lineHeight: isWorkspaceCompact ? 1.35 : 1.45 }}>
-                          {req.requirementText}
+                          {decodeHtmlEntities(req.requirementText)}
                         </div>
                       </td>
                       <td style={{ padding: reqCellPadding, verticalAlign: "top" }}>
@@ -880,7 +891,7 @@ export default function AuditWorkspacePage() {
                         >
                           {(workspace.dropdowns?.scoreOptions ?? []).map((score: any) => (
                             <option key={score.label} value={score.label}>
-                              {score.label}
+                              {decodeHtmlEntities(score.label)}
                             </option>
                           ))}
                         </select>
@@ -961,7 +972,7 @@ export default function AuditWorkspacePage() {
                               <ul style={{ paddingLeft: 18 }}>
                                 {(history?.notes ?? []).map((note: any) => (
                                   <li key={`n-${note.id}`}>
-                                    {note.note_text} <em>({formatLocalTimestamp(note.created_at)})</em>
+                                    {decodeHtmlEntities(note.note_text)} <em>({formatLocalTimestamp(note.created_at)})</em>
                                   </li>
                                 ))}
                               </ul>
@@ -972,7 +983,7 @@ export default function AuditWorkspacePage() {
                               <ul style={{ paddingLeft: 18 }}>
                                 {(history?.events ?? []).map((evt: any) => (
                                   <li key={`e-${evt.id}`}>
-                                    <strong>{evt.event_type}</strong> <em>({formatLocalTimestamp(evt.created_at)})</em>
+                                    <strong>{decodeHtmlEntities(evt.event_type)}</strong> <em>({formatLocalTimestamp(evt.created_at)})</em>
                                   </li>
                                 ))}
                               </ul>
@@ -1014,11 +1025,11 @@ export default function AuditWorkspacePage() {
                 <tr key={detail.field_key}>
                   <td>
                     <div>
-                      <strong>{detail.label}</strong>
-                    </div>
-                    {detail.guidance_text ? (
-                      <div style={{ opacity: 0.8, fontSize: "0.9rem" }}>{detail.guidance_text}</div>
-                    ) : null}
+                       <strong>{decodeHtmlEntities(detail.label)}</strong>
+                     </div>
+                     {detail.guidance_text ? (
+                       <div style={{ opacity: 0.8, fontSize: "0.9rem" }}>{decodeHtmlEntities(detail.guidance_text)}</div>
+                     ) : null}
                   </td>
                   <td>
                     <textarea

@@ -2,6 +2,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { decodeHtmlEntities } from "../lib/text-format";
 
 type ClientRow = { id: number; name: string };
 type RoleRow = { code: string; description: string };
@@ -22,6 +23,36 @@ const authHeaders = (token: string, json = false) => ({
   ...(json ? { "Content-Type": "application/json" } : {}),
   ...(token ? { Authorization: `Bearer ${token}` } : {})
 });
+
+const toUiError = (status: number, body: any, fallback: string): string => {
+  const raw = String(body?.error ?? "").toLowerCase();
+
+  if (
+    status === 409 &&
+    raw.includes("already scoped to another client")
+  ) {
+    return "This user already belongs to another client. Only system admins can assign users across multiple clients.";
+  }
+
+  if (status === 400 && raw.includes("invalid user payload")) {
+    const fieldErrors = body?.details?.fieldErrors ?? {};
+    const messages = Object.entries(fieldErrors)
+      .flatMap(([field, values]) =>
+        Array.isArray(values)
+          ? values.map((value) => `${field}: ${String(value)}`)
+          : []
+      )
+      .filter(Boolean);
+
+    if (messages.length) {
+      return `Invalid user payload — ${messages.join(" | ")}`;
+    }
+
+    return "Invalid user payload — check email format, display name (min 2 chars), password (min 8 chars), and roles.";
+  }
+
+  return String(body?.error ?? fallback);
+};
 
 const parseJwtPayload = (token: string): any | null => {
   try {
@@ -50,6 +81,8 @@ export default function AdminPage() {
   const [authToken, setAuthToken] = useState("");
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [newClientName, setNewClientName] = useState("");
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
   const [rolesCatalog, setRolesCatalog] = useState<RoleRow[]>([]);
   const [orgUsers, setOrgUsers] = useState<OrgUserRow[]>([]);
   const [roleEditsByUserId, setRoleEditsByUserId] = useState<Record<string, string[]>>({});
@@ -64,6 +97,14 @@ export default function AdminPage() {
 
   const tokenMissing = useMemo(() => !authToken, [authToken]);
   const hasAdminAccess = useMemo(() => hasAdminRoleFromToken(authToken), [authToken]);
+  const messageVariant = useMemo<"info" | "success" | "warning" | "error">(() => {
+    const text = String(message || "").toLowerCase();
+    if (!text) return "info";
+    if (text.includes("already belongs to another client")) return "warning";
+    if (text.includes("failed") || text.includes("error") || text.includes("forbidden")) return "error";
+    if (text.includes("created") || text.includes("updated") || text.includes("archived")) return "success";
+    return "info";
+  }, [message]);
 
   const isRbacCompact = rbacDensity === "compact";
   const rbacTableSpacing = isRbacCompact ? "0 6px" : "0 10px";
@@ -78,6 +119,12 @@ export default function AdminPage() {
     });
 
     if (!res.ok) {
+      if (res.status === 401 && typeof window !== "undefined") {
+        window.sessionStorage.removeItem("audit_fitsm_token");
+        setAuthToken("");
+        window.location.href = "/login";
+        return;
+      }
       setClients([]);
       return;
     }
@@ -212,8 +259,24 @@ export default function AdminPage() {
     event.preventDefault();
     setMessage("");
 
+    const email = newUserEmail.trim();
+    const displayName = newUserDisplayName.trim();
+    const password = newUserPassword;
+
     if (!selectedClientId) {
       setMessage("Select a client first.");
+      return;
+    }
+    if (!email || !email.includes("@")) {
+      setMessage("Enter a valid email address.");
+      return;
+    }
+    if (displayName.length < 2) {
+      setMessage("Display name must be at least 2 characters.");
+      return;
+    }
+    if (password.length < 8) {
+      setMessage("Temporary password must be at least 8 characters.");
       return;
     }
     if (newUserRoles.length === 0) {
@@ -227,16 +290,16 @@ export default function AdminPage() {
         method: "POST",
         headers: authHeaders(authToken, true),
         body: JSON.stringify({
-          email: newUserEmail,
-          password: newUserPassword,
-          displayName: newUserDisplayName,
+          email,
+          password,
+          displayName,
           roles: newUserRoles
         })
       });
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setMessage(body.error ?? "User creation failed.");
+        setMessage(toUiError(res.status, body, "User creation failed."));
         return;
       }
 
@@ -275,7 +338,7 @@ export default function AdminPage() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setMessage(body.error ?? "Role update failed.");
+        setMessage(toUiError(res.status, body, "Role update failed."));
         return;
       }
 
@@ -315,17 +378,98 @@ export default function AdminPage() {
     }
   };
 
+  const createClient = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setMessage("");
+
+    setIsCreatingClient(true);
+    try {
+      const res = await fetch(`${apiUrl}/clients`, {
+        method: "POST",
+        headers: authHeaders(authToken, true),
+        body: JSON.stringify({ name: newClientName })
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setMessage(body.error ?? "Client creation failed.");
+        return;
+      }
+
+      const created = await res.json();
+      setNewClientName("");
+      setMessage(`Client '${decodeHtmlEntities(created.name)}' created.`);
+      await loadClients();
+      setSelectedClientId(Number(created.id));
+    } finally {
+      setIsCreatingClient(false);
+    }
+  };
+
   return (
     <main className="container grid">
       <section className="card">
         <h1>Admin</h1>
         <p>Manage users, roles, and client-level access.</p>
-        {message ? <p>{message}</p> : null}
+        {message ? (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              marginTop: 10,
+              borderRadius: 10,
+              border:
+                messageVariant === "warning"
+                  ? "1px solid #f6c343"
+                  : messageVariant === "error"
+                    ? "1px solid #f87171"
+                    : messageVariant === "success"
+                      ? "1px solid #4ade80"
+                      : "1px solid #60a5fa",
+              background:
+                messageVariant === "warning"
+                  ? "#2b2308"
+                  : messageVariant === "error"
+                    ? "#2c1212"
+                    : messageVariant === "success"
+                      ? "#0f2a1b"
+                      : "#0f1f3a",
+              color:
+                messageVariant === "warning"
+                  ? "#fde68a"
+                  : messageVariant === "error"
+                    ? "#fecaca"
+                    : messageVariant === "success"
+                      ? "#bbf7d0"
+                      : "#bfdbfe",
+              padding: "10px 12px",
+              fontWeight: 600
+            }}
+          >
+            {message}
+          </div>
+        ) : null}
       </section>
 
       {!tokenMissing && hasAdminAccess ? (
-        <section className="card">
-          <h2>RBAC Administration (Selected Client)</h2>
+        <>
+          <section className="card">
+            <h2>1) Client Administration</h2>
+            <form onSubmit={createClient} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                value={newClientName}
+                onChange={(event) => setNewClientName(event.target.value)}
+                placeholder="New client name"
+                required
+              />
+              <button type="submit" disabled={isCreatingClient}>
+                {isCreatingClient ? "Creating..." : "Create Client"}
+              </button>
+            </form>
+          </section>
+
+          <section className="card">
+            <h2>2) RBAC Administration (Selected Client)</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
             <label htmlFor="admin-client-select">Client:</label>
             <select
@@ -335,7 +479,7 @@ export default function AdminPage() {
             >
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
-                  {client.name}
+                  {decodeHtmlEntities(client.name)}
                 </option>
               ))}
             </select>
@@ -383,6 +527,7 @@ export default function AdminPage() {
                     placeholder="Display name"
                     value={newUserDisplayName}
                     onChange={(event) => setNewUserDisplayName(event.target.value)}
+                    minLength={2}
                     required
                   />
                   <input
@@ -402,7 +547,7 @@ export default function AdminPage() {
                         checked={newUserRoles.includes(role.code)}
                         onChange={() => setNewUserRoles((prev) => toggleRoleSelection(prev, role.code))}
                       />{" "}
-                      {role.code}
+                      {decodeHtmlEntities(role.code)}
                     </label>
                   ))}
                 </div>
@@ -447,8 +592,8 @@ export default function AdminPage() {
                               opacity: user.has_active_org_roles ? 1 : 0.85
                             }}
                           >
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top", fontWeight: 600 }}>{user.display_name}</td>
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top", color: "#c8d4ff" }}>{user.email}</td>
+                            <td style={{ padding: rbacCellPadding, verticalAlign: "top", fontWeight: 600 }}>{decodeHtmlEntities(user.display_name)}</td>
+                            <td style={{ padding: rbacCellPadding, verticalAlign: "top", color: "#c8d4ff" }}>{decodeHtmlEntities(user.email)}</td>
                             <td style={{ padding: rbacCellPadding, verticalAlign: "top" }}>{user.is_active ? "Yes" : "No"}</td>
                             <td style={{ padding: rbacCellPadding, verticalAlign: "top" }}>
                               <span
@@ -487,7 +632,7 @@ export default function AdminPage() {
                                         }))
                                       }
                                     />{" "}
-                                    {role.code}
+                                    {decodeHtmlEntities(role.code)}
                                   </label>
                                 ))}
                               </div>
@@ -514,7 +659,8 @@ export default function AdminPage() {
               )}
             </>
           )}
-        </section>
+          </section>
+        </>
       ) : null}
     </main>
   );

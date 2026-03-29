@@ -20,11 +20,14 @@ case "${SERVICE}" in
   web)
     journalctl --user -u "${WEB_SERVICE}" -f
     ;;
+  pma|phpmyadmin)
+    journalctl --user -u "${PHPMYADMIN_SERVICE}" -f
+    ;;
   all)
-    journalctl --user -u "${POD_SERVICE}" -u "${DB_SERVICE}" -u "${DEV_SERVICE}" -u "${API_SERVICE}" -u "${WEB_SERVICE}" -f
+    journalctl --user -u "${POD_SERVICE}" -u "${DB_SERVICE}" -u "${PHPMYADMIN_SERVICE}" -u "${DEV_SERVICE}" -u "${API_SERVICE}" -u "${WEB_SERVICE}" -f
     ;;
   *)
-    printf "Usage: scripts/logs.sh [pod|db|dev|api|web|all]\n" >&2
+    printf "Usage: scripts/logs.sh [pod|db|pma|phpmyadmin|dev|api|web|all]\n" >&2
     exit 1
     ;;
 esac

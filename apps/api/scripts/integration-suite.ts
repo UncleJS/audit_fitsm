@@ -194,6 +194,29 @@ const main = async () => {
   await expectOk(createOrgUserRes, "create org user");
   const createdUser = await createOrgUserRes.json();
 
+  const secondClientRes = await fetch(`${apiBase}/clients`, {
+    method: "POST",
+    headers: jsonHeaders(adminToken),
+    body: JSON.stringify({ name: `${clientName} Secondary` })
+  });
+  await expectOk(secondClientRes, "create second client for user-scope test");
+  const secondClient = await secondClientRes.json();
+  const secondOrgId = Number(secondClient.id);
+
+  const crossClientUserRes = await fetch(`${apiBase}/orgs/${secondOrgId}/users`, {
+    method: "POST",
+    headers: jsonHeaders(adminToken),
+    body: JSON.stringify({
+      email: auditorEmail,
+      password: "ChangeMe123!",
+      displayName: "Integration Auditor",
+      roles: ["viewer"]
+    })
+  });
+  if (crossClientUserRes.status !== 409) {
+    fail(`expected 409 for non-system-admin cross-client user, got ${crossClientUserRes.status}`);
+  }
+
   const updateRolesRes = await fetch(`${apiBase}/orgs/${orgId}/users/${createdUser.id}/roles`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
@@ -261,6 +284,7 @@ const main = async () => {
           "csv exports",
           "pdf exports",
           "rbac admin",
+          "client-scoped users",
           "completed audit lock"
         ]
       },

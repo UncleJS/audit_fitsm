@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev -p 1260",
     "build": "next build",
-    "start": "next start -p 1260"
+    "start": "next start -p 1260",
+    "test": "bun test app/lib/text-format.test.ts"
   },
   "dependencies": {
     "next": "^15.2.4",
