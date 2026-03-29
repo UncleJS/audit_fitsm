@@ -77,10 +77,10 @@ Primary files:
 
 - Symptom: CI/local strict script fails before build with host-port conflict.
 - Typical causes:
-  - local services already using `1260/1261/1262`
+  - local services already using `1260/1261/1262/1263`
 - Fix:
   - stop conflicting services, or run local CI with alternate ports:
-  - inspect holders/mappings with `scripts/ports.sh 1260 1261 1262`
+  - inspect holders/mappings with `scripts/ports.sh 1260 1261 1262 1263`
 
 ```bash
 DB_PORT=2262 APP_PORT=2261 WEB_PORT=2260 bash ./scripts/ci-strict.sh
@@ -122,8 +122,11 @@ DB_PORT=2262 APP_PORT=2261 WEB_PORT=2260 bash ./scripts/ci-strict.sh
 - Typical causes:
   - API contract/regression change
   - auth/role behavior regression
+  - missing FitSM workbook when testing import-dependent behavior
 - Fix:
   - inspect failing endpoint from test output
+  - note: CI now falls back to minimal seeded FitSM catalog when `FITSM_ODS_PATH` is missing
+  - for full-catalog import validation, provide `FITSM_ODS_PATH` to an available workbook inside the dev container
   - reproduce inside dev container with:
 
 ```bash

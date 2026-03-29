@@ -88,11 +88,13 @@ podman exec audit-fitsm-dev bun run --cwd /workspace/apps/api db:migrate
 podman exec audit-fitsm-dev bun run --cwd /workspace/apps/api bootstrap:admin -- admin@example.com 'ChangeMe123!'
 ```
 
-4. Import FitSM workbook:
+4. (Optional) Import FitSM workbook for full catalog coverage:
 
 ```bash
 podman exec audit-fitsm-dev bun run --cwd /workspace/apps/api import:fitsm -- /workspace/FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods 1 1 "Initial Imported Audit"
 ```
+
+Note: migrations include a minimal FitSM seed (GR1/GR1.1) so CI/local strict checks can run even when the workbook file is unavailable.
 
 5. Open the UI flow:
 

@@ -126,11 +126,17 @@ podman exec "${DEV_CONTAINER}" bun run --cwd /workspace/apps/api bootstrap:admin
   "${TEST_ADMIN_PASSWORD}" \
   "CI Admin" \
   "CI Organization"
-podman exec "${DEV_CONTAINER}" bun run --cwd /workspace/apps/api import:fitsm -- \
-  "${FITSM_ODS_PATH}" \
-  1 \
-  1 \
-  "CI Imported Audit"
+
+if podman exec "${DEV_CONTAINER}" test -f "${FITSM_ODS_PATH}"; then
+  printf "[ci] importing FitSM workbook from %s\n" "${FITSM_ODS_PATH}"
+  podman exec "${DEV_CONTAINER}" bun run --cwd /workspace/apps/api import:fitsm -- \
+    "${FITSM_ODS_PATH}" \
+    1 \
+    1 \
+    "CI Imported Audit"
+else
+  printf "[ci] FITSM workbook not found at %s; using minimal seeded catalog from migrations\n" "${FITSM_ODS_PATH}"
+fi
 
 printf "[ci] starting api and web processes\n"
 podman exec -d "${DEV_CONTAINER}" sh -lc "bun run --cwd /workspace/apps/api dev >/tmp/api.log 2>&1"
