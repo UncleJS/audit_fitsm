@@ -27,6 +27,8 @@ The suite validates:
 - CSV export endpoints
 - PDF generate/list/download
 - org RBAC admin endpoints
+- client-scoped user enforcement (non-system-admin cross-client assignment blocked)
+- web HTML-entity decoding regression (`&amp;` -> `&`)
 
 [Go to TOC](#table-of-contents)
 
@@ -75,6 +77,7 @@ Mode behavior:
 - `basic`: DB ping + migration presence + `GET /health` + `GET /ready` + web HTTP reachability
 - `extended`: basic + auth login + `GET /me`
 - `strict`: extended + full integration suite (`integration:test`)
+  - plus web text-entity regression test (`apps/web/app/lib/text-format.test.ts`)
 
 [Go to TOC](#table-of-contents)
 

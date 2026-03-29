@@ -1,23 +1,33 @@
-# Audit FitSM (ODS -> MariaDB)
+# Audit FitSM
 
 ![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-black)
 ![Database: MariaDB](https://img.shields.io/badge/database-MariaDB-003545)
 
-Operational-sheets implementation for `FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods`.
+Audit FitSM is a purpose-built tool designed to support organizations in conducting efficient, structured, and repeatable audits aligned with the FitSM framework. FitSM is a lightweight, pragmatic service management framework designed to support IT service management (ITSM) in a simple and effective way, making it particularly suitable for small to medium-sized organizations or teams seeking to implement best practices without the overhead of more complex frameworks.
+
+The Audit FitSM tool streamlines the audit process by providing a centralized platform for managing audit criteria, capturing evidence, tracking findings, and generating reports. It enables auditors to work through FitSM requirements systematically, ensuring consistency and completeness across all assessments. By digitizing the audit workflow, the tool reduces manual effort, minimizes errors, and improves overall audit quality.
+
+Key features include predefined FitSM audit checklists, customizable assessment templates, and structured scoring mechanisms to evaluate compliance levels. Auditors can record observations, attach supporting documentation, and classify findings based on severity and impact. The tool also facilitates collaboration between auditors and client stakeholders by allowing shared visibility into audit progress and results.
+
+In addition, Audit FitSM provides reporting capabilities that translate audit findings into clear, actionable insights. These reports help organizations understand their current maturity level, identify gaps, and prioritize improvement initiatives. Over time, the tool can support trend analysis, enabling organizations to track their progress toward achieving and maintaining FitSM compliance.
+
+Designed with usability and practicality in mind, Audit FitSM aligns with the core philosophy of FitSM: delivering effective service management with minimal complexity. It empowers auditors and organizations alike to focus on meaningful improvements rather than administrative overhead, ultimately enhancing service quality and operational efficiency.
 
 ## Table of Contents
 
-- [Port plan (1260-1269)](#port-plan-1260-1269)
-- [Project layout](#project-layout)
-- [Documentation index](#documentation-index)
-- [Container-first setup (no bind mounts)](#container-first-setup-no-bind-mounts)
-- [Authentication UX](#authentication-ux)
-- [Notes](#notes)
-- [Health and readiness checks](#health-and-readiness-checks)
-- [Management scripts](#management-scripts)
-- [CI integration](#ci-integration)
-- [License footer](#license-footer)
+- [Audit FitSM](#audit-fitsm)
+  - [Table of Contents](#table-of-contents)
+  - [Port plan (1260-1269)](#port-plan-1260-1269)
+  - [Project layout](#project-layout)
+  - [Documentation index](#documentation-index)
+  - [Container-first setup (no bind mounts)](#container-first-setup-no-bind-mounts)
+  - [Authentication UX](#authentication-ux)
+  - [Notes](#notes)
+  - [Health and readiness checks](#health-and-readiness-checks)
+  - [Management scripts](#management-scripts)
+  - [CI integration](#ci-integration)
+  - [License footer](#license-footer)
 
 ## Port plan (1260-1269)
 
@@ -86,26 +96,32 @@ podman exec audit-fitsm-dev bun run --cwd /workspace/apps/api import:fitsm -- /w
 
 5. Open the UI flow:
 
-- `http://localhost:1260/`
+- `http://localhost:1260/login`
 - `http://localhost:1263/` (phpMyAdmin login, no auto-login)
-- Create/select a client
-- Register a new audit for that client
+- Login (local credentials)
+- Use `Clients` page for audit work (`/clients`)
+- Use `Admin` page for client creation and RBAC (`/admin`)
+- Create/select a client from Admin, then select it in Clients
+- Register a new audit for that client (with global cert goal at creation)
 - Open `/audits/:auditId` workspace to assess grouped requirements for that audit
 - Save assessment scores/comments/evidence, audit details, and conclusion
 - Use Notes/History per requirement
 - Use Save All for scope + assessments + details + conclusion
+- Scope + cert-goal edits are allowed only while audit status is `draft`
 - Manage status (`draft` -> `in_progress` -> `completed`)
-- Manage org users/roles from home-page RBAC Administration section
-- Use filters/search/sort/dashboard on home page
+- Manage org users/roles from Admin RBAC section
+- Non-system-admin users are client-scoped (single client)
+- Use filters/search/sort/dashboard on Clients page
 - Generate/store/download PDF exports and CSV exports
 
 [Go to TOC](#table-of-contents)
 
 ## Authentication UX
 
-- Login from the home page using local credentials
+- Dedicated login route: `/login`
+- Dedicated logout route: `/logout`
+- Protected routes (`/clients`, `/admin`, `/audits/:auditId`) redirect to `/login` when token is missing/invalid
 - JWT is stored in browser `sessionStorage` key `audit_fitsm_token`
-- Workspace page reads that token; logout clears it
 
 [Go to TOC](#table-of-contents)
 
@@ -160,6 +176,13 @@ scripts/health-readiness.sh strict
 - `scripts/integration-test.sh` - run full integration suite against running stack
 - `scripts/ci-strict.sh` - CI orchestration with Podman + strict readiness checks
 - `scripts/new-doc.sh <relative-path.md> <title>` - create docs page with badges + TOC + footer scaffold
+
+Route summary:
+
+- `/login` (auth only)
+- `/logout` (clear token)
+- `/clients` (audit operations)
+- `/admin` (client + RBAC administration)
 
 Docs template: `docs/TEMPLATE.md`
 

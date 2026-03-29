@@ -25,6 +25,11 @@ Base URL: `http://localhost:1261`
 - `POST /auth/login`
 - `GET /me`
 
+Behavior notes:
+
+- Browser clients use `sessionStorage` token key: `audit_fitsm_token`
+- Frontend routes redirect to `/login` when token is missing/invalid
+
 [Go to TOC](#table-of-contents)
 
 ## Health and readiness
@@ -43,6 +48,11 @@ Base URL: `http://localhost:1261`
 - `POST /orgs/:orgId/users`
 - `PUT /orgs/:orgId/users/:userId/roles`
 
+Behavior notes:
+
+- Non-system-admin users are client-scoped (single org). Cross-client assignment returns `409`.
+- System admin role cannot be assigned via org-scoped role endpoints.
+
 [Go to TOC](#table-of-contents)
 
 ## Audits
@@ -51,11 +61,19 @@ Base URL: `http://localhost:1261`
 - `POST /orgs/:orgId/audits`
 - `PUT /audits/:auditId/status`
 
+Behavior notes:
+
+- `POST /orgs/:orgId/audits` accepts `certGoalLevel` and applies it to all process targets at creation.
+
 [Go to TOC](#table-of-contents)
 
 ## Scope / Targets
 
 - `PUT /audits/:auditId/scope-targets`
+
+Behavior notes:
+
+- Scope/cert-goal target updates are allowed only while audit status is `draft`.
 
 [Go to TOC](#table-of-contents)
 
