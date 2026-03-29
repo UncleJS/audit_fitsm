@@ -41,7 +41,7 @@ type OrgUserRow = {
 
 const apiUrlFromEnv = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
 const defaultApiUrl = apiUrlFromEnv || "http://127.0.0.1:1261";
-const demoToken = process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "";
+const demoToken = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "1" ? process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "" : "";
 
 const authHeaders = (token: string, json = false) => ({
   ...(json ? { "Content-Type": "application/json" } : {}),

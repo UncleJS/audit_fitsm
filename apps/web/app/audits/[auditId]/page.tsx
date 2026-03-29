@@ -7,7 +7,7 @@ import { formatDateOnly, formatLocalTimestamp } from "../../lib/date-format";
 import { decodeHtmlEntities } from "../../lib/text-format";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:1261";
-const demoToken = process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "";
+const demoToken = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "1" ? process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "" : "";
 
 const authHeaders = (token: string, json = false) => ({
   ...(json ? { "Content-Type": "application/json" } : {}),
@@ -179,6 +179,47 @@ export default function AuditWorkspacePage() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const parseAuditEventJson = (value: unknown): any | null => {
+    if (!value) return null;
+    try {
+      return JSON.parse(String(value));
+    } catch {
+      return null;
+    }
+  };
+
+  const auditEventLabel = (eventType: string): string => {
+    if (eventType === "status_changed") return "Status changed";
+    if (eventType === "detail_response_changed") return "Audit detail updated";
+    if (eventType === "conclusion_changed") return "Conclusion updated";
+    if (eventType === "assessment_archived") return "Assessment archived";
+    if (eventType === "assessment_restored") return "Assessment restored";
+    return eventType;
+  };
+
+  const auditEventSummary = (event: any): string => {
+    const oldValue = parseAuditEventJson(event.old_value_json);
+    const newValue = parseAuditEventJson(event.new_value_json);
+
+    if (event.event_type === "status_changed") {
+      return `${oldValue?.status ?? "unknown"} → ${newValue?.status ?? "unknown"}`;
+    }
+
+    if (event.event_type === "detail_response_changed") {
+      return `Field: ${event.entity_key || "unknown"}`;
+    }
+
+    if (event.event_type === "conclusion_changed") {
+      return newValue?.conclusionText ? "Conclusion text updated" : "Conclusion cleared";
+    }
+
+    if (event.event_type === "assessment_archived" || event.event_type === "assessment_restored") {
+      return `Assessment #${event.entity_key || "?"}`;
+    }
+
+    return event.entity_key ? `Target: ${event.entity_key}` : "";
   };
 
   const generatePdfExport = async () => {
@@ -711,6 +752,23 @@ export default function AuditWorkspacePage() {
               ))}
             </tbody>
           </table>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Audit Activity</h2>
+        {(workspace.auditEvents ?? []).length === 0 ? (
+          <p>No audit-level activity recorded yet.</p>
+        ) : (
+          <ul style={{ paddingLeft: 18 }}>
+            {(workspace.auditEvents ?? []).map((event: any) => (
+              <li key={`audit-event-${event.id}`} style={{ marginBottom: 8 }}>
+                <strong>{auditEventLabel(String(event.event_type))}</strong>
+                {auditEventSummary(event) ? ` — ${decodeHtmlEntities(auditEventSummary(event))}` : ""} <em>({formatLocalTimestamp(event.created_at)})</em>
+                {event.actor_name ? ` by ${decodeHtmlEntities(event.actor_name)}` : ""}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

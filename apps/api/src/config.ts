@@ -10,6 +10,7 @@ const required = (name: string, fallback?: string): string => {
 export const config = {
   appPort: Number(process.env.APP_PORT ?? 1261),
   jwtSecret: required("JWT_SECRET", "replace-with-strong-secret"),
+  jwtTtlSec: Math.max(60, Number(process.env.JWT_TTL_SEC ?? 900)),
   exportsDir: process.env.EXPORTS_DIR ?? "/workspace/data/exports",
   rateLimit: {
     windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60000),
@@ -31,3 +32,10 @@ export const config = {
     database: required("DB_NAME", "audit_fitsm")
   }
 };
+
+if (
+  (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") &&
+  config.jwtSecret === "replace-with-strong-secret"
+) {
+  throw new Error("JWT_SECRET must be overridden outside development/test environments");
+}

@@ -16,6 +16,7 @@ type AuthPayload = {
   email: string;
   name: string;
   orgRoles: Record<string, string[]>;
+  tokenVersion: number;
 };
 
 const openApiDoc = JSON.parse(
@@ -24,6 +25,69 @@ const openApiDoc = JSON.parse(
 
 const db = getDb();
 const corsAllowedOrigins = new Set(config.cors.allowedOrigins);
+
+const swaggerCsp = [
+  "default-src 'self'",
+  "style-src 'self' https://unpkg.com 'unsafe-inline'",
+  "script-src 'self' https://unpkg.com 'unsafe-inline'",
+  "img-src 'self' data: https:",
+  "font-src 'self' https://unpkg.com data:",
+  "frame-ancestors 'none'"
+].join("; ");
+
+const defaultCsp = "default-src 'self'; frame-ancestors 'none'";
+
+const buildOrgRoles = (roleRows: RowDataPacket[]): Record<string, string[]> => {
+  const orgRoles: Record<string, string[]> = {};
+  for (const roleRow of roleRows) {
+    const key = String(roleRow.org_id);
+    if (!orgRoles[key]) {
+      orgRoles[key] = [];
+    }
+    orgRoles[key].push(String(roleRow.role_code));
+  }
+  return orgRoles;
+};
+
+const revokeUserSessions = async (userId: number): Promise<void> => {
+  await db.execute(
+    `UPDATE users
+     SET token_version = token_version + 1,
+         updated_at = UTC_TIMESTAMP(3)
+     WHERE id = ? AND archived_at IS NULL`,
+    [userId]
+  );
+};
+
+const recordAuditEvent = async (
+  auditId: number,
+  eventType: string,
+  actorUserId: number,
+  oldValue: unknown,
+  newValue: unknown,
+  entityType: "audit" | "detail" | "conclusion" | "status" | "assessment" = "audit",
+  entityKey: string | null = null
+): Promise<void> => {
+  await db.execute(
+    `INSERT INTO audit_events
+       (audit_id, event_type, entity_type, entity_key, old_value_json, new_value_json, actor_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      auditId,
+      eventType,
+      entityType,
+      entityKey,
+      oldValue === undefined ? null : JSON.stringify(oldValue),
+      newValue === undefined ? null : JSON.stringify(newValue),
+      actorUserId
+    ]
+  );
+};
+
+const getContentSecurityPolicy = (request: Request): string => {
+  const pathname = new URL(request.url).pathname;
+  return pathname === "/docs" ? swaggerCsp : defaultCsp;
+};
 
 const applyCorsHeaders = (set: any, request: Request): void => {
   const origin = request.headers.get("origin");
@@ -178,7 +242,10 @@ const safeFileSegment = (value: string): string =>
 
 const csvEscape = (value: unknown): string => {
   if (value === null || value === undefined) return "";
-  const text = String(value).replace(/\r?\n/g, " ");
+  let text = String(value).replace(/\r?\n/g, " ");
+  if (/^[\t ]*[=+\-@]/.test(text)) {
+    text = `'${text}`;
+  }
   if (/[",]/.test(text)) {
     return `"${text.replace(/"/g, '""')}"`;
   }
@@ -294,7 +361,7 @@ const app = new Elysia()
     set.headers["x-frame-options"] = "DENY";
     set.headers["referrer-policy"] = "same-origin";
     set.headers["x-permitted-cross-domain-policies"] = "none";
-    set.headers["content-security-policy"] = "default-src 'self'; frame-ancestors 'none'";
+    set.headers["content-security-policy"] = getContentSecurityPolicy(request);
   })
   .derive(async ({ headers, jwt }) => {
     const token = extractBearer(headers.authorization);
@@ -307,7 +374,43 @@ const app = new Elysia()
       return { auth: null as AuthPayload | null };
     }
 
-    return { auth: payload as AuthPayload };
+    const exp = Number((payload as any).exp ?? 0);
+    if (exp && Date.now() >= exp * 1000) {
+      return { auth: null as AuthPayload | null };
+    }
+
+    const userId = Number((payload as any).sub);
+    const tokenVersion = Number((payload as any).tokenVersion);
+    if (!Number.isInteger(userId) || !Number.isInteger(tokenVersion)) {
+      return { auth: null as AuthPayload | null };
+    }
+
+    const [userRows] = await db.query<RowDataPacket[]>(
+      `SELECT id, email, display_name, is_active, token_version
+       FROM users
+       WHERE id = ? AND archived_at IS NULL
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (!userRows.length) {
+      return { auth: null as AuthPayload | null };
+    }
+
+    const user = userRows[0];
+    if (Number(user.is_active) !== 1 || Number(user.token_version) !== tokenVersion) {
+      return { auth: null as AuthPayload | null };
+    }
+
+    return {
+      auth: {
+        sub: userId,
+        email: String(user.email),
+        name: String(user.display_name),
+        orgRoles: ((payload as any).orgRoles ?? {}) as Record<string, string[]>,
+        tokenVersion
+      } satisfies AuthPayload
+    };
   })
   .options("/*", ({ set, request }) => {
     applyCorsHeaders(set, request);
@@ -396,7 +499,7 @@ const app = new Elysia()
     const payload = parsed.data;
 
     const [users] = await db.query<RowDataPacket[]>(
-      `SELECT id, email, password_hash, display_name, auth_provider, is_active
+      `SELECT id, email, password_hash, display_name, auth_provider, is_active, token_version
        FROM users
        WHERE email = ? AND archived_at IS NULL
        LIMIT 1`,
@@ -422,20 +525,17 @@ const app = new Elysia()
       [users[0].id]
     );
 
-    const orgRoles: Record<string, string[]> = {};
-    for (const roleRow of roleRows) {
-      const key = String(roleRow.org_id);
-      if (!orgRoles[key]) {
-        orgRoles[key] = [];
-      }
-      orgRoles[key].push(String(roleRow.role_code));
-    }
+    const orgRoles = buildOrgRoles(roleRows);
+    const nowSec = Math.floor(Date.now() / 1000);
 
     const token = await jwt.sign({
       sub: Number(users[0].id),
       email: String(users[0].email),
       name: String(users[0].display_name),
-      orgRoles
+      orgRoles,
+      tokenVersion: Number(users[0].token_version ?? 1),
+      iat: nowSec,
+      exp: nowSec + config.jwtTtlSec
     } satisfies AuthPayload);
 
     await db.execute(
@@ -652,6 +752,7 @@ const app = new Elysia()
     });
 
     let userId: number;
+    let shouldRevokeUserSessions = false;
     if (existingUsers.length) {
       userId = Number(existingUsers[0].id);
 
@@ -670,6 +771,7 @@ const app = new Elysia()
          WHERE id = ? AND archived_at IS NULL`,
         [payload.displayName, passwordHash, userId]
       );
+      shouldRevokeUserSessions = true;
     } else {
       const [insertUser] = await db.execute(
         `INSERT INTO users (email, password_hash, display_name, auth_provider)
@@ -686,6 +788,10 @@ const app = new Elysia()
          ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
         [orgId, userId, Number(role.id), auth.sub]
       );
+    }
+
+    if (shouldRevokeUserSessions) {
+      await revokeUserSessions(userId);
     }
 
     set.status = 201;
@@ -724,8 +830,20 @@ const app = new Elysia()
       return { error: "User not found" };
     }
 
+    const [currentRoleRows] = await db.query<RowDataPacket[]>(
+      `SELECT r.code
+       FROM org_user_roles our
+       JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
+       WHERE our.org_id = ?
+         AND our.user_id = ?
+         AND our.archived_at IS NULL
+       ORDER BY r.code ASC`,
+      [orgId, userId]
+    );
+    const currentRoleCodes = currentRoleRows.map((row) => String(row.code)).sort();
+
     if (roleCodesRequested.length === 0) {
-      await db.execute(
+      const [archiveResult] = await db.execute(
         `UPDATE org_user_roles
          SET archived_at = UTC_TIMESTAMP(3)
          WHERE org_id = ?
@@ -733,6 +851,10 @@ const app = new Elysia()
            AND archived_at IS NULL`,
         [orgId, userId]
       );
+
+      if (Number((archiveResult as any).affectedRows ?? 0) > 0) {
+        await revokeUserSessions(userId);
+      }
 
       return { userId, roles: [], archivedInOrg: true };
     }
@@ -781,6 +903,11 @@ const app = new Elysia()
          ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
         [orgId, userId, Number(role.id), auth.sub]
       );
+    }
+
+    const nextRoleCodes = [...foundCodes].sort();
+    if (JSON.stringify(currentRoleCodes) !== JSON.stringify(nextRoleCodes)) {
+      await revokeUserSessions(userId);
     }
 
     return { userId, roles: foundCodes, archivedInOrg: false };
@@ -904,6 +1031,15 @@ const app = new Elysia()
        SET status = ?, completed_at = ${completedAt}, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
        WHERE id = ? AND archived_at IS NULL`,
       [payload.status, auth.sub, auditId]
+    );
+
+    await recordAuditEvent(
+      auditId,
+      "status_changed",
+      auth.sub,
+      { status: access.status },
+      { status: payload.status },
+      "status"
     );
 
     return { id: auditId, status: payload.status };
@@ -1236,6 +1372,17 @@ const app = new Elysia()
         [auditId, fieldId]
       );
 
+      const previousValue = existingRows.length
+        ? {
+            responseText: existingRows[0].response_text ?? null,
+            noteText: existingRows[0].note_text ?? null
+          }
+        : null;
+      const nextValue = {
+        responseText: item.responseText ?? null,
+        noteText: item.noteText ?? null
+      };
+
       await db.execute(
         `INSERT INTO audit_detail_responses (audit_id, field_id, response_text, note_text, updated_by)
          VALUES (?, ?, ?, ?, ?)
@@ -1247,34 +1394,15 @@ const app = new Elysia()
         [auditId, fieldId, item.responseText ?? null, item.noteText ?? null, auth.sub]
       );
 
-      const [assessmentRows] = await db.query<RowDataPacket[]>(
-        `SELECT id
-         FROM audit_assessments
-         WHERE audit_id = ? AND archived_at IS NULL
-         ORDER BY id ASC
-         LIMIT 1`,
-        [auditId]
-      );
-
-      const auditAssessmentId = assessmentRows.length ? Number(assessmentRows[0].id) : null;
-      if (auditAssessmentId) {
-        await db.execute(
-          `INSERT INTO assessment_events
-             (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-           VALUES (?, 'detail_response_changed', ?, ?, ?)`,
-          [
-            auditAssessmentId,
-            JSON.stringify(
-              existingRows.length
-                ? {
-                    responseText: existingRows[0].response_text ?? null,
-                    noteText: existingRows[0].note_text ?? null
-                  }
-                : null
-            ),
-            JSON.stringify({ responseText: item.responseText ?? null, noteText: item.noteText ?? null }),
-            auth.sub
-          ]
+      if (JSON.stringify(previousValue) !== JSON.stringify(nextValue)) {
+        await recordAuditEvent(
+          auditId,
+          "detail_response_changed",
+          auth.sub,
+          previousValue,
+          nextValue,
+          "detail",
+          item.fieldKey
         );
       }
     }
@@ -1320,26 +1448,16 @@ const app = new Elysia()
       [auditId, payload.conclusionText ?? null, auth.sub]
     );
 
-    const [assessmentRows] = await db.query<RowDataPacket[]>(
-      `SELECT aa.id
-       FROM audit_assessments aa
-       WHERE aa.audit_id = ? AND aa.archived_at IS NULL
-       ORDER BY aa.id ASC
-       LIMIT 1`,
-      [auditId]
-    );
-
-    if (assessmentRows.length) {
-      await db.execute(
-        `INSERT INTO assessment_events
-           (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-         VALUES (?, 'conclusion_changed', ?, ?, ?)`,
-        [
-          Number(assessmentRows[0].id),
-          JSON.stringify({ conclusionText: existingRows.length ? existingRows[0].conclusion_text : null }),
-          JSON.stringify({ conclusionText: payload.conclusionText ?? null }),
-          auth.sub
-        ]
+    const previousConclusion = existingRows.length ? existingRows[0].conclusion_text ?? null : null;
+    const nextConclusion = payload.conclusionText ?? null;
+    if (String(previousConclusion ?? "") !== String(nextConclusion ?? "")) {
+      await recordAuditEvent(
+        auditId,
+        "conclusion_changed",
+        auth.sub,
+        { conclusionText: previousConclusion },
+        { conclusionText: nextConclusion },
+        "conclusion"
       );
     }
 
@@ -1582,6 +1700,25 @@ const app = new Elysia()
        ORDER BY id ASC`
     );
 
+    const [auditEvents] = await db.query<RowDataPacket[]>(
+      `SELECT
+         ae.id,
+         ae.event_type,
+         ae.entity_type,
+         ae.entity_key,
+         ae.old_value_json,
+         ae.new_value_json,
+         ae.actor_user_id,
+         u.display_name AS actor_name,
+         ae.created_at
+       FROM audit_events ae
+       LEFT JOIN users u ON u.id = ae.actor_user_id
+       WHERE ae.audit_id = ?
+       ORDER BY ae.created_at DESC, ae.id DESC
+       LIMIT 100`,
+      [auditId]
+    );
+
     return {
       audit: auditRows[0],
       permissions: {
@@ -1596,6 +1733,7 @@ const app = new Elysia()
       groupedProcesses: Array.from(groups.values()),
       details,
       conclusion: conclusionRows.length ? conclusionRows[0] : { conclusion_text: null },
+      auditEvents,
       dropdowns: {
         scoreOptions,
         targetLevels,
@@ -1992,7 +2130,7 @@ const app = new Elysia()
     }
 
     const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT aa.id, aa.audit_id, a.org_id
+      `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at
        FROM audit_assessments aa
        JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
        WHERE aa.id = ?
@@ -2010,18 +2148,38 @@ const app = new Elysia()
       return forbidden;
     }
 
-    await db.execute(
+    if (rows[0].archived_at) {
+      set.status = 409;
+      return { error: "Assessment is already archived" };
+    }
+
+    const [archiveResult] = await db.execute(
       `UPDATE audit_assessments
        SET archived_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3), updated_by = ?
        WHERE id = ? AND archived_at IS NULL`,
       [auth.sub, assessmentId]
     );
 
+    if (Number((archiveResult as any).affectedRows ?? 0) === 0) {
+      set.status = 409;
+      return { error: "Assessment could not be archived" };
+    }
+
     await db.execute(
       `INSERT INTO assessment_events
          (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
        VALUES (?, 'assessment_archived', NULL, NULL, ?)`,
       [assessmentId, auth.sub]
+    );
+
+    await recordAuditEvent(
+      Number(rows[0].audit_id),
+      "assessment_archived",
+      auth.sub,
+      { assessmentId, archived: false },
+      { assessmentId, archived: true },
+      "assessment",
+      String(assessmentId)
     );
 
     return { archived: true };
@@ -2035,7 +2193,7 @@ const app = new Elysia()
     }
 
     const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT aa.id, aa.audit_id, a.org_id
+      `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at
        FROM audit_assessments aa
        JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
        WHERE aa.id = ?
@@ -2053,18 +2211,38 @@ const app = new Elysia()
       return forbidden;
     }
 
-    await db.execute(
+    if (!rows[0].archived_at) {
+      set.status = 409;
+      return { error: "Assessment is already active" };
+    }
+
+    const [restoreResult] = await db.execute(
       `UPDATE audit_assessments
        SET archived_at = NULL, updated_at = UTC_TIMESTAMP(3), updated_by = ?
        WHERE id = ? AND archived_at IS NOT NULL`,
       [auth.sub, assessmentId]
     );
 
+    if (Number((restoreResult as any).affectedRows ?? 0) === 0) {
+      set.status = 409;
+      return { error: "Assessment could not be restored" };
+    }
+
     await db.execute(
       `INSERT INTO assessment_events
          (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
        VALUES (?, 'assessment_restored', NULL, NULL, ?)`,
       [assessmentId, auth.sub]
+    );
+
+    await recordAuditEvent(
+      Number(rows[0].audit_id),
+      "assessment_restored",
+      auth.sub,
+      { assessmentId, archived: true },
+      { assessmentId, archived: false },
+      "assessment",
+      String(assessmentId)
     );
 
     return { restored: true };

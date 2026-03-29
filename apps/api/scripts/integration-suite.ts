@@ -53,6 +53,13 @@ const main = async () => {
   const clientsRes = await fetch(`${apiBase}/clients`, { headers: authHeaders(adminToken) });
   await expectOk(clientsRes, "list clients");
 
+  const docsRes = await fetch(`${apiBase}/docs`, { headers: authHeaders(adminToken) });
+  await expectOk(docsRes, "swagger docs");
+  const docsCsp = String(docsRes.headers.get("content-security-policy") ?? "");
+  if (!docsCsp.includes("https://unpkg.com")) {
+    fail(`swagger docs CSP missing unpkg allowance: ${docsCsp}`);
+  }
+
   // create audit
   const auditDate = new Date().toISOString().slice(0, 10);
   const createAuditRes = await fetch(`${apiBase}/orgs/${orgId}/audits`, {
@@ -100,8 +107,8 @@ const main = async () => {
         {
           requirementCode: firstReq.requirementCode,
           scoreLabel: "2",
-          commentText: "integration-test comment",
-          evidenceText: "integration-test evidence"
+          commentText: "=SUM(1,1)",
+          evidenceText: "@integration-proof"
         }
       ]
     })
@@ -136,6 +143,18 @@ const main = async () => {
   });
   await expectOk(conclusionRes, "conclusion update");
 
+  const historyAfterAuditMetaRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/history`, {
+    headers: authHeaders(adminToken)
+  });
+  await expectOk(historyAfterAuditMetaRes, "history read after audit-meta changes");
+  const historyAfterAuditMeta = await historyAfterAuditMetaRes.json();
+  const misleadingEventTypes = new Set(
+    (historyAfterAuditMeta.events ?? []).map((event: any) => String(event.event_type))
+  );
+  if (misleadingEventTypes.has("detail_response_changed") || misleadingEventTypes.has("conclusion_changed")) {
+    fail("assessment history should not contain audit-level detail/conclusion events");
+  }
+
   // status transitions
   for (const status of ["in_progress", "completed", "in_progress"]) {
     const stRes = await fetch(`${apiBase}/audits/${auditId}/status`, {
@@ -146,12 +165,33 @@ const main = async () => {
     await expectOk(stRes, `status transition -> ${status}`);
   }
 
+  const workspaceAfterChangesRes = await fetch(`${apiBase}/audits/${auditId}/workspace`, {
+    headers: authHeaders(adminToken)
+  });
+  await expectOk(workspaceAfterChangesRes, "workspace after audit changes");
+  const workspaceAfterChanges = await workspaceAfterChangesRes.json();
+  const auditEventTypes = new Set(
+    (workspaceAfterChanges.auditEvents ?? []).map((event: any) => String(event.event_type))
+  );
+  for (const expectedType of ["detail_response_changed", "conclusion_changed", "status_changed"]) {
+    if (!auditEventTypes.has(expectedType)) {
+      fail(`workspace audit history missing event type: ${expectedType}`);
+    }
+  }
+
   // csv exports
   for (const report of ["all", "certification", "gaps"]) {
     const csvRes = await fetch(`${apiBase}/audits/${auditId}/exports/csv?report=${report}`, {
       headers: authHeaders(adminToken)
     });
     await expectOk(csvRes, `audit csv ${report}`);
+
+    if (report === "all") {
+      const csvText = await csvRes.text();
+      if (!csvText.includes("'=SUM(1,1)") || !csvText.includes("'@integration-proof")) {
+        fail("audit csv did not neutralize spreadsheet formula cells");
+      }
+    }
   }
 
   const trendsCsvRes = await fetch(`${apiBase}/orgs/${orgId}/exports/csv?report=trends`, {
@@ -264,6 +304,21 @@ const main = async () => {
     fail(`expected 403 for locked audit write, got ${auditorWriteRes.status} ${body}`);
   }
 
+  const revokeAuditorRolesRes = await fetch(`${apiBase}/orgs/${orgId}/users/${createdUser.id}/roles`, {
+    method: "PUT",
+    headers: jsonHeaders(adminToken),
+    body: JSON.stringify({ roles: [] })
+  });
+  await expectOk(revokeAuditorRolesRes, "revoke org user roles");
+
+  const revokedTokenClientsRes = await fetch(`${apiBase}/clients`, {
+    headers: authHeaders(auditorToken)
+  });
+  if (revokedTokenClientsRes.status !== 401) {
+    const body = await revokedTokenClientsRes.text();
+    fail(`expected 401 for revoked token, got ${revokedTokenClientsRes.status} ${body}`);
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -281,11 +336,15 @@ const main = async () => {
           "notes/history",
           "details/conclusion",
           "status transitions",
+          "swagger docs csp",
+          "csv neutralization",
           "csv exports",
           "pdf exports",
           "rbac admin",
           "client-scoped users",
-          "completed audit lock"
+          "completed audit lock",
+          "jwt revocation",
+          "audit-level history integrity"
         ]
       },
       null,

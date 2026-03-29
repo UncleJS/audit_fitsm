@@ -154,6 +154,8 @@ Note: migrations include a minimal FitSM seed (GR1/GR1.1) so CI/local strict che
 - Dedicated logout route: `/logout`
 - Protected routes (`/clients`, `/admin`, `/audits/:auditId`) redirect to `/login` when token is missing/invalid
 - JWT is stored in browser `sessionStorage` key `audit_fitsm_token`
+- JWTs are short-lived (`JWT_TTL_SEC`, default 15 minutes) and role/password changes revoke existing tokens
+- demo-token auth is disabled by default; enable only with `NEXT_PUBLIC_ENABLE_DEMO_AUTH=1`
 
 [Go to TOC](#table-of-contents)
 
@@ -164,6 +166,7 @@ Note: migrations include a minimal FitSM seed (GR1/GR1.1) so CI/local strict che
 - DB backups are ZIP files with UTC datetime names under `/workspace/data/backups`
 - Reporting views: `v_all_results`, `v_certification_results`, `v_gap_analysis`, `v_trends`
 - Security hardening: basic in-memory API rate limiting + security headers enabled
+- CSV exports neutralize spreadsheet formula prefixes (`=`, `+`, `-`, `@`)
 - Health endpoints: `GET /health` and `GET /ready`
 - UI date-only input format: `yyyy-mm-dd` (locale-independent)
 - UI timestamp format: local `YYYY-MM-DD HH:mm:ss`
