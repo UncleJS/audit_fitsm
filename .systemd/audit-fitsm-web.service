@@ -1,0 +1,17 @@
+[Unit]
+Description=Audit FitSM Web UI (inside dev container)
+Requires=audit-fitsm-dev.service
+After=audit-fitsm-dev.service
+PartOf=audit-fitsm-dev.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/podman inspect audit-fitsm-dev
+ExecStart=/usr/bin/podman exec audit-fitsm-dev bun run --cwd /workspace/apps/web dev
+ExecStop=/usr/bin/podman exec audit-fitsm-dev sh -lc "pkill -f 'next dev -p 1260' || true"
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

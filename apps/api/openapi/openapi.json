@@ -1,0 +1,665 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Audit FitSM API",
+    "version": "0.1.0",
+    "description": "Spec-first API for FitSM assessment and audit lifecycle."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:1261"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Audit": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "org_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "type": "string" },
+          "audit_date": { "type": "string", "format": "date" }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Readiness check (DB + migrations)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Ready"
+          },
+          "503": {
+            "description": "Not ready"
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Login with local credentials",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JWT access token"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        },
+        "security": []
+      }
+    },
+    "/me": {
+      "get": {
+        "summary": "Current user profile and org roles",
+        "responses": {
+          "200": {
+            "description": "Authenticated profile"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/clients": {
+      "get": {
+        "summary": "List accessible clients (organizations)",
+        "responses": {
+          "200": {
+            "description": "Client list"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create new client (system admin)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/roles": {
+      "get": {
+        "summary": "List assignable roles",
+        "responses": {
+          "200": {
+            "description": "Role list"
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/users": {
+      "get": {
+        "summary": "List users and roles for an organization",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization user list"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create local user and assign org roles",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/users/{userId}/roles": {
+      "put": {
+        "summary": "Replace organization roles for one user",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated"
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/audits": {
+      "get": {
+        "summary": "List organization audits",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audits list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Audit" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create organization audit",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "auditDate"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "auditDate": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/status": {
+      "put": {
+        "summary": "Update audit status with transition rules",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["draft", "in_progress", "completed"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated"
+          },
+          "409": {
+            "description": "Invalid transition"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/results/all": {
+      "get": {
+        "summary": "All results view",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Rows from v_all_results" }
+        }
+      }
+    },
+    "/audits/{auditId}/scope-targets": {
+      "put": {
+        "summary": "Bulk update process scope and targets for an audit",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update summary"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/assessments": {
+      "put": {
+        "summary": "Bulk upsert requirement assessments",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update summary"
+          }
+        }
+      }
+    },
+    "/assessments/{assessmentId}/notes": {
+      "post": {
+        "summary": "Append a note to one assessment",
+        "parameters": [
+          {
+            "name": "assessmentId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/assessments/{assessmentId}/history": {
+      "get": {
+        "summary": "Get events and notes for one assessment",
+        "parameters": [
+          {
+            "name": "assessmentId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "History payload"
+          }
+        }
+      }
+    },
+    "/assessments/{assessmentId}/archive": {
+      "post": {
+        "summary": "Archive one assessment row (soft delete)",
+        "parameters": [
+          {
+            "name": "assessmentId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Archived" }
+        }
+      }
+    },
+    "/assessments/{assessmentId}/restore": {
+      "post": {
+        "summary": "Restore one archived assessment row",
+        "parameters": [
+          {
+            "name": "assessmentId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Restored" }
+        }
+      }
+    },
+    "/audits/{auditId}/details": {
+      "get": {
+        "summary": "Read audit detail responses",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit details"
+          }
+        }
+      },
+      "put": {
+        "summary": "Bulk update audit detail responses",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update summary"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/conclusion": {
+      "get": {
+        "summary": "Read audit conclusion",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conclusion payload"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update audit conclusion text",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update summary"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/workspace": {
+      "get": {
+        "summary": "Get complete audit workspace grouped by process",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Grouped audit workspace payload"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/exports": {
+      "get": {
+        "summary": "List stored PDF exports for an audit",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Export list"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/exports/csv": {
+      "get": {
+        "summary": "Download audit report CSV (all|certification|gaps)",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "report",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["all", "certification", "gaps"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV binary"
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/exports/csv": {
+      "get": {
+        "summary": "Download organization trends CSV",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "report",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["trends"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV binary"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/exports/pdf": {
+      "post": {
+        "summary": "Generate and store full assessment PDF export",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created export metadata"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/exports/{exportId}/download": {
+      "get": {
+        "summary": "Download one stored audit PDF export",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "exportId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF binary"
+          }
+        }
+      }
+    },
+    "/audits/{auditId}/results/certification": {
+      "get": {
+        "summary": "Certification summary",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Rows from v_certification_results" }
+        }
+      }
+    },
+    "/audits/{auditId}/results/gaps": {
+      "get": {
+        "summary": "Gap analysis",
+        "parameters": [
+          {
+            "name": "auditId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Rows from v_gap_analysis" }
+        }
+      }
+    },
+    "/orgs/{orgId}/trends": {
+      "get": {
+        "summary": "Trend data by process over audits",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Rows from v_trends" }
+        }
+      }
+    }
+  }
+}

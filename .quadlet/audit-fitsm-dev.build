@@ -1,0 +1,10 @@
+[Unit]
+Description=Build Audit FitSM dev image
+
+[Build]
+ImageTag=localhost/audit-fitsm-dev:latest
+SetWorkingDirectory=/home/jacos/0_opencode/audit_fitsm
+File=Containerfile.dev
+
+[Install]
+WantedBy=default.target

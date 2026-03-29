@@ -1,0 +1,31 @@
+{
+  "name": "@audit-fitsm/api",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "db:migrate": "bun scripts/run-migrations.ts",
+    "import:fitsm": "bun scripts/import-fitsm.ts",
+    "bootstrap:admin": "bun scripts/bootstrap-admin.ts",
+    "backup:db": "bun scripts/backup-db.ts",
+    "restore:db": "bun scripts/restore-db.ts",
+    "health:readiness": "bun scripts/health-readiness.ts",
+    "integration:test": "bun scripts/integration-suite.ts"
+  },
+  "dependencies": {
+    "@elysiajs/jwt": "^1.3.1",
+    "drizzle-orm": "^0.43.1",
+    "elysia": "^1.4.9",
+    "fast-xml-parser": "^4.5.3",
+    "jszip": "^3.10.1",
+    "mysql2": "^3.15.1",
+    "pdf-lib": "^1.17.1",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/jszip": "^3.4.1",
+    "@types/node": "^22.15.2",
+    "drizzle-kit": "^0.31.1"
+  }
+}

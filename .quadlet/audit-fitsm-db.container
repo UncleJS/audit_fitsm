@@ -1,0 +1,18 @@
+[Unit]
+Description=Audit FitSM MariaDB
+After=network-online.target audit-fitsm-pod-pod.service
+Wants=network-online.target
+Requires=audit-fitsm-pod-pod.service
+
+[Container]
+ContainerName=audit-fitsm-db
+Pod=audit-fitsm-pod.pod
+Image=mariadb:11.4
+Environment=MARIADB_DATABASE=audit_fitsm
+Environment=MARIADB_USER=audit_app
+Environment=MARIADB_PASSWORD=change_me
+Environment=MARIADB_ROOT_PASSWORD=change_root
+Volume=audit-fitsm-db.volume:/var/lib/mysql:Z
+
+[Install]
+WantedBy=default.target

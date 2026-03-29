@@ -1,0 +1,22 @@
+{
+  "name": "audit-fitsm",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "bash ./scripts/run-api.sh",
+    "dev:web": "bash ./scripts/run-web.sh",
+    "db:migrate": "bash ./scripts/migrate.sh",
+    "import:fitsm": "bash ./scripts/import-fitsm.sh",
+    "bootstrap:admin": "bash ./scripts/bootstrap-admin.sh",
+    "backup:db": "bash ./scripts/backup-db.sh",
+    "restore:db": "bash ./scripts/restore-db.sh",
+    "clean:runtime": "bash ./scripts/clean-old-runtime.sh",
+    "preflight:ports": "bash ./scripts/preflight-ports.sh",
+    "inspect:ports": "bash ./scripts/ports.sh",
+    "check:ui-date-inputs": "bash ./scripts/check-ui-date-inputs.sh",
+    "health:readiness": "bash ./scripts/health-readiness.sh",
+    "integration:test": "bash ./scripts/integration-test.sh"
+  }
+}

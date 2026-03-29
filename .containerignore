@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+**/node_modules
+dist
+build
+.next
+coverage
+tmp
+*.log
+data

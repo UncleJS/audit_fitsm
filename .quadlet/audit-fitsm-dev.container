@@ -1,0 +1,28 @@
+[Unit]
+Description=Audit FitSM Development Container
+After=network-online.target audit-fitsm-pod-pod.service audit-fitsm-db.service
+Wants=network-online.target
+Requires=audit-fitsm-pod-pod.service audit-fitsm-db.service
+
+[Container]
+ContainerName=audit-fitsm-dev
+Pod=audit-fitsm-pod.pod
+Image=localhost/audit-fitsm-dev:latest
+WorkingDir=/workspace
+Environment=DB_HOST=127.0.0.1
+Environment=DB_PORT=3306
+Environment=DB_USER=audit_app
+Environment=DB_PASSWORD=change_me
+Environment=DB_NAME=audit_fitsm
+Environment=JWT_SECRET=replace-with-strong-secret
+Environment=APP_PORT=1261
+Environment=EXPORTS_DIR=/workspace/data/exports
+Environment=BACKUPS_DIR=/workspace/data/backups
+Volume=audit-fitsm-dev.volume:/workspace/.dev-volume:Z
+Volume=audit-fitsm-bun-cache.volume:/root/.bun:Z
+Volume=audit-fitsm-exports.volume:/workspace/data/exports:Z
+Volume=audit-fitsm-backups.volume:/workspace/data/backups:Z
+Exec=sleep infinity
+
+[Install]
+WantedBy=default.target

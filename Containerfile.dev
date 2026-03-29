@@ -1,0 +1,22 @@
+FROM oven/bun:1.2.22 AS bunbin
+
+FROM registry.access.redhat.com/ubi10/ubi-minimal:latest
+
+RUN microdnf install -y \
+    ca-certificates \
+    git \
+    gzip \
+    tar \
+    shadow-utils \
+    mariadb \
+    && microdnf clean all
+
+COPY --from=bunbin /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=bunbin /usr/local/bin/bunx /usr/local/bin/bunx
+
+WORKDIR /workspace
+COPY . /workspace
+
+RUN bun install
+
+CMD ["bash"]

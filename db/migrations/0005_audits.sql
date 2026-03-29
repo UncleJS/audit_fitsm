@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS audits (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  org_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  status ENUM('draft', 'in_progress', 'completed', 'archived') NOT NULL DEFAULT 'draft',
+  audit_date DATE NOT NULL,
+  created_by BIGINT UNSIGNED NOT NULL,
+  updated_by BIGINT UNSIGNED NULL,
+  completed_at DATETIME(3) NULL,
+  archived_at DATETIME(3) NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3) ON UPDATE UTC_TIMESTAMP(3),
+  active_org_id BIGINT UNSIGNED AS (CASE WHEN archived_at IS NULL THEN org_id ELSE NULL END) STORED,
+  active_name VARCHAR(255) AS (CASE WHEN archived_at IS NULL THEN name ELSE NULL END) STORED,
+  PRIMARY KEY (id),
+  KEY idx_audits_org_date (org_id, audit_date),
+  KEY idx_audits_status (status),
+  UNIQUE KEY uq_audits_active_name_per_org (active_org_id, active_name),
+  CONSTRAINT fk_audits_org FOREIGN KEY (org_id) REFERENCES organizations(id),
+  CONSTRAINT fk_audits_created_by FOREIGN KEY (created_by) REFERENCES users(id),
+  CONSTRAINT fk_audits_updated_by FOREIGN KEY (updated_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
