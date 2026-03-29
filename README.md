@@ -19,6 +19,8 @@ Designed with usability and practicality in mind, Audit FitSM aligns with the co
 - [Audit FitSM](#audit-fitsm)
   - [Table of Contents](#table-of-contents)
   - [Port plan (1260-1269)](#port-plan-1260-1269)
+  - [Prerequisites](#prerequisites)
+  - [Rootless Podman only](#rootless-podman-only)
   - [Project layout](#project-layout)
   - [Documentation index](#documentation-index)
   - [Container-first setup (no bind mounts)](#container-first-setup-no-bind-mounts)
@@ -35,6 +37,27 @@ Designed with usability and practicality in mind, Audit FitSM aligns with the co
 - API: `1261`
 - MariaDB (host published): `1262`
 - phpMyAdmin (manual login): `1263`
+
+[Go to TOC](#table-of-contents)
+
+## Prerequisites
+
+Before running this stack, ensure:
+
+- Linux host with `systemd --user` available
+- Rootless `podman` installed and working
+- `bash`, `git`, and `systemctl` installed
+- Host ports `1260`, `1261`, `1262`, `1263` are free
+
+[Go to TOC](#table-of-contents)
+
+## Rootless Podman only
+
+This project is container-first and **rootless Podman only**:
+
+- Do **not** use Docker
+- Do **not** use rootful containers (`sudo podman ...`)
+- Use provided `scripts/*.sh` lifecycle commands and Quadlet user units
 
 [Go to TOC](#table-of-contents)
 
