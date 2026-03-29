@@ -1,6 +1,6 @@
 # API Surface (v0.1)
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![API: OpenAPI](https://img.shields.io/badge/spec-OpenAPI-6BA539)
 ![Base URL](https://img.shields.io/badge/base%20url-http%3A%2F%2Flocalhost%3A1261-2ea44f)
 
@@ -105,6 +105,6 @@ Base URL: `http://localhost:1261`
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](../LICENSE.md).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
 
 [Go to TOC](#table-of-contents)

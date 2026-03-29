@@ -1,6 +1,6 @@
 # UI Date and Timestamp Formatting
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![UI](https://img.shields.io/badge/ui-date_formatting-purple)
 ![Format](https://img.shields.io/badge/format-yyyy--mm--dd%20%7C%20YYYY--MM--DD%20HH:mm:ss-2ea44f)
 
@@ -68,6 +68,6 @@ scripts/check-ui-date-inputs.sh
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](../LICENSE.md).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
 
 [Go to TOC](#table-of-contents)

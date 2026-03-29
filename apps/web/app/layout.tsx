@@ -30,7 +30,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href="https://img.shields.io" target="_blank" rel="noreferrer">
               <img
                 alt="License Badge"
-                src="https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg"
+                src="https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg"
               />
             </a>{" "}
             <a href="https://img.shields.io" target="_blank" rel="noreferrer">
@@ -42,10 +42,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </div>
           <div>
             © Audit FitSM contributors. Licensed under{" "}
-            <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noreferrer">
-              CC BY-NC-SA 4.0
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+              CC BY 4.0
             </a>
             .
+          </div>
+          <div style={{ marginTop: 6 }}>
+            FitSM framework attribution: <a href="https://www.fitsm.eu/" target="_blank" rel="noreferrer">https://www.fitsm.eu/</a>
           </div>
         </footer>
       </body>

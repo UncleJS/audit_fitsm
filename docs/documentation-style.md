@@ -1,6 +1,6 @@
 # Documentation Style
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![Docs](https://img.shields.io/badge/docs-standardized-blue)
 
 Standard rules for project documentation pages.
@@ -89,6 +89,6 @@ Use this standard for all `.md` pages in this repository (root docs and `docs/` 
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 [Go to TOC](#table-of-contents)

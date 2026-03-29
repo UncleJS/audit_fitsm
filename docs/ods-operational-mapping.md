@@ -1,6 +1,6 @@
 # ODS Operational Mapping
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![Source: ODS](https://img.shields.io/badge/source-ODS-0A7E07)
 ![Target: MariaDB](https://img.shields.io/badge/target-MariaDB-003545)
 
@@ -53,6 +53,6 @@ Views in `0012_views.sql` mirror workbook logic:
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](../LICENSE.md).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
 
 [Go to TOC](#table-of-contents)

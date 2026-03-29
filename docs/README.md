@@ -1,6 +1,6 @@
 # Documentation Index
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![Docs](https://img.shields.io/badge/docs-index-blue)
 
 Index of project documentation pages.
@@ -37,6 +37,6 @@ Index of project documentation pages.
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](../LICENSE.md).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
 
 [Go to TOC](#table-of-contents)

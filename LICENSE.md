@@ -1,16 +1,16 @@
-# License (CC BY-NC-SA 4.0)
+# License (CC BY 4.0)
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
-![NonCommercial](https://img.shields.io/badge/use-NonCommercial-orange)
-![ShareAlike](https://img.shields.io/badge/terms-ShareAlike-blue)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
+![Attribution](https://img.shields.io/badge/terms-Attribution-blue)
 
-This project is licensed under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International** License.
+This project is licensed under the **Creative Commons Attribution 4.0 International** License.
 
 ## Table of Contents
 
 - [Permissions](#permissions)
 - [Conditions](#conditions)
 - [No additional restrictions](#no-additional-restrictions)
+- [Attribution notice for FitSM](#attribution-notice-for-fitsm)
 - [Full legal text](#full-legal-text)
 - [License footer](#license-footer)
 
@@ -26,8 +26,6 @@ You are free to:
 ## Conditions
 
 - **Attribution** — Give appropriate credit, provide a link to the license, and indicate changes.
-- **NonCommercial** — Do not use the material for commercial purposes.
-- **ShareAlike** — Distribute derivatives under the same license.
 
 [Go to TOC](#table-of-contents)
 
@@ -37,14 +35,22 @@ You may not apply legal or technical measures that legally restrict others from 
 
 [Go to TOC](#table-of-contents)
 
+## Attribution notice for FitSM
+
+This project references and operationalizes the FitSM framework. Credit for the framework and source materials is given to **FitSM**:
+
+- https://www.fitsm.eu/
+
+[Go to TOC](#table-of-contents)
+
 ## Full legal text
 
-- https://creativecommons.org/licenses/by-nc-sa/4.0/
+- https://creativecommons.org/licenses/by/4.0/
 
 [Go to TOC](#table-of-contents)
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under CC BY-NC-SA 4.0.
+© Audit FitSM contributors. Licensed under CC BY 4.0. FitSM framework attribution: https://www.fitsm.eu/.
 
 [Go to TOC](#table-of-contents)

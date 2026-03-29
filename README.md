@@ -1,6 +1,6 @@
 # Audit FitSM (ODS -> MariaDB)
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-black)
 ![Database: MariaDB](https://img.shields.io/badge/database-MariaDB-003545)
 
@@ -178,6 +178,8 @@ Docs template: `docs/TEMPLATE.md`
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](./LICENSE.md).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](./LICENSE.md).
+
+FitSM framework attribution: source framework and terminology credited to [FitSM](https://www.fitsm.eu/).
 
 [Go to TOC](#table-of-contents)

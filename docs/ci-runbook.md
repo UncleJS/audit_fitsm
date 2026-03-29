@@ -1,6 +1,6 @@
 # CI Runbook
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![CI](https://img.shields.io/badge/ci-github_actions-2088FF)
 ![Runtime](https://img.shields.io/badge/runtime-podman_only-5C4EE5)
 
@@ -165,6 +165,6 @@ KEEP_CONTAINERS=1 bash ./scripts/ci-strict.sh
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](../LICENSE.md).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
 
 [Go to TOC](#table-of-contents)

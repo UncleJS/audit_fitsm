@@ -1,6 +1,6 @@
 # Documentation Style Audit Report
 
-![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-lightgrey.svg)
+![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![Docs](https://img.shields.io/badge/docs-audit-blue)
 ![Result](https://img.shields.io/badge/result-8%2F9%20pass-yellow)
 
@@ -21,7 +21,7 @@ Checked all `*.md` files in repository root and subdirectories for:
 1. shields.io badge presence
 2. `## Table of Contents` section
 3. `[Go to TOC](#table-of-contents)` link in each major section
-4. `## License footer` section with CC BY-NC-SA text
+4. `## License footer` section with CC BY text
 
 [Go to TOC](#table-of-contents)
 
@@ -59,6 +59,6 @@ Option B: Reformat `AGENTS.md` to match style standard (badges, TOC, section foo
 
 ## License footer
 
-© Audit FitSM contributors. Licensed under [CC BY-NC-SA 4.0](../LICENSE.md).
+© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
 
 [Go to TOC](#table-of-contents)
