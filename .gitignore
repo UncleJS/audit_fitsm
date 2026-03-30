@@ -22,3 +22,6 @@ coverage/
 
 # Local workbook artifact
 FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods
+
+# Local planning docs
+docs/ui-redesign-plan.md
