@@ -72,7 +72,40 @@ export default function AuditWorkspacePage() {
     details: false,
     conclusion: false
   });
+  const autosaveErrorsRef = useRef<Record<string, string>>({
+    scope: "",
+    assessments: "",
+    details: "",
+    conclusion: ""
+  });
   const hasLoadedWorkspaceRef = useRef(false);
+
+  const normalizeAssessmentItems = (source: Record<string, any>) =>
+    Object.values(source)
+      .map((item: any) => ({
+        requirementCode: String(item.requirementCode ?? ""),
+        scoreLabel: String(item.scoreLabel ?? "Select …"),
+        commentText: String(item.commentText ?? ""),
+        evidenceText: String(item.evidenceText ?? "")
+      }))
+      .sort((left: any, right: any) => left.requirementCode.localeCompare(right.requirementCode));
+
+  const getChangedAssessmentItems = () => {
+    const currentItems = normalizeAssessmentItems(edits);
+    let previousItems: any[] = [];
+
+    try {
+      previousItems = JSON.parse(lastSavedSnapshotsRef.current.assessments || "[]");
+    } catch {
+      previousItems = [];
+    }
+
+    const previousByRequirement = new Map<string, string>(
+      previousItems.map((item: any) => [String(item.requirementCode ?? ""), JSON.stringify(item)])
+    );
+
+    return currentItems.filter((item: any) => previousByRequirement.get(item.requirementCode) !== JSON.stringify(item));
+  };
 
   const tokenMissing = useMemo(() => !authToken, [authToken]);
   const canEdit = workspace?.permissions?.canEdit ?? false;
@@ -98,17 +131,7 @@ export default function AuditWorkspacePage() {
     [scopeEdits]
   );
   const assessmentsSnapshot = useMemo(
-    () =>
-      JSON.stringify(
-        Object.values(edits)
-          .map((item: any) => ({
-            requirementCode: String(item.requirementCode ?? ""),
-            scoreLabel: String(item.scoreLabel ?? "Select …"),
-            commentText: String(item.commentText ?? ""),
-            evidenceText: String(item.evidenceText ?? "")
-          }))
-          .sort((left: any, right: any) => left.requirementCode.localeCompare(right.requirementCode))
-      ),
+    () => JSON.stringify(normalizeAssessmentItems(edits)),
     [edits]
   );
   const detailsSnapshot = useMemo(
@@ -207,14 +230,7 @@ export default function AuditWorkspacePage() {
           .sort((left: any, right: any) => left.processCode.localeCompare(right.processCode))
       ),
       assessments: JSON.stringify(
-        Object.values(nextEdits)
-          .map((item: any) => ({
-            requirementCode: String(item.requirementCode ?? ""),
-            scoreLabel: String(item.scoreLabel ?? "Select …"),
-            commentText: String(item.commentText ?? ""),
-            evidenceText: String(item.evidenceText ?? "")
-          }))
-          .sort((left: any, right: any) => left.requirementCode.localeCompare(right.requirementCode))
+        normalizeAssessmentItems(nextEdits)
       ),
       details: JSON.stringify(
         Object.values(nextDetails)
@@ -232,6 +248,12 @@ export default function AuditWorkspacePage() {
       assessments: false,
       details: false,
       conclusion: false
+    };
+    autosaveErrorsRef.current = {
+      scope: "",
+      assessments: "",
+      details: "",
+      conclusion: ""
     };
     hasLoadedWorkspaceRef.current = true;
     setAutosaveState({ status: "idle", section: "", detail: "" });
@@ -492,6 +514,7 @@ export default function AuditWorkspacePage() {
     }
 
     if (!canManageScopeTargets) {
+      autosaveErrorsRef.current.scope = "You do not have permission to change scope/targets.";
       if (!silent) {
         setMessage("You do not have permission to change scope/targets.");
       }
@@ -513,6 +536,7 @@ export default function AuditWorkspacePage() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
+      autosaveErrorsRef.current.scope = body.error ?? "Scope/targets save failed.";
       if (!silent) {
         setMessage(body.error ?? "Scope/targets save failed.");
       }
@@ -522,6 +546,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Scope and targets saved.");
     }
+    autosaveErrorsRef.current.scope = "";
     setLastSavedAt(new Date().toISOString());
 
     if (reloadAfter) {
@@ -531,12 +556,15 @@ export default function AuditWorkspacePage() {
     return true;
   };
 
-  const saveAssessments = async (reloadAfter = true, silent = false): Promise<boolean> => {
+  const saveAssessments = async (reloadAfter = true, silent = false, itemsOverride?: any[]): Promise<boolean> => {
     if (!silent) {
       setMessage("");
     }
 
     if (!canEdit) {
+      autosaveErrorsRef.current.assessments = isLockedForNonLead
+        ? "Audit is completed and locked for non-lead roles."
+        : "You do not have permission to update assessments.";
       if (!silent) {
         setMessage(
           isLockedForNonLead
@@ -547,7 +575,11 @@ export default function AuditWorkspacePage() {
       return false;
     }
 
-    const items = Object.values(edits);
+    const items = itemsOverride ?? normalizeAssessmentItems(edits);
+    if (silent && items.length === 0) {
+      autosaveErrorsRef.current.assessments = "";
+      return true;
+    }
 
     const res = await fetch(`${apiUrl}/audits/${auditId}/assessments`, {
       method: "PUT",
@@ -557,6 +589,7 @@ export default function AuditWorkspacePage() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
+      autosaveErrorsRef.current.assessments = body.error ?? "Assessment save failed.";
       if (!silent) {
         setMessage(body.error ?? "Assessment save failed.");
       }
@@ -566,6 +599,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Assessment updates saved.");
     }
+    autosaveErrorsRef.current.assessments = "";
     setLastSavedAt(new Date().toISOString());
     if (reloadAfter) {
       await loadWorkspace();
@@ -645,6 +679,9 @@ export default function AuditWorkspacePage() {
     }
 
     if (!canEdit) {
+      autosaveErrorsRef.current.details = isLockedForNonLead
+        ? "Audit is completed and locked for non-lead roles."
+        : "You do not have permission to update audit details.";
       if (!silent) {
         setMessage(
           isLockedForNonLead
@@ -665,6 +702,7 @@ export default function AuditWorkspacePage() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
+      autosaveErrorsRef.current.details = body.error ?? "Audit details save failed.";
       if (!silent) {
         setMessage(body.error ?? "Audit details save failed.");
       }
@@ -674,6 +712,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Audit details saved.");
     }
+    autosaveErrorsRef.current.details = "";
     setLastSavedAt(new Date().toISOString());
     if (reloadAfter) {
       await loadWorkspace();
@@ -687,6 +726,7 @@ export default function AuditWorkspacePage() {
     }
 
     if (!canLeadEdit) {
+      autosaveErrorsRef.current.conclusion = "You do not have permission to update the conclusion.";
       if (!silent) {
         setMessage("You do not have permission to update the conclusion.");
       }
@@ -701,6 +741,7 @@ export default function AuditWorkspacePage() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
+      autosaveErrorsRef.current.conclusion = body.error ?? "Conclusion save failed.";
       if (!silent) {
         setMessage(body.error ?? "Conclusion save failed.");
       }
@@ -710,6 +751,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Conclusion saved.");
     }
+    autosaveErrorsRef.current.conclusion = "";
     setLastSavedAt(new Date().toISOString());
     if (reloadAfter) {
       await loadWorkspace();
@@ -783,7 +825,11 @@ export default function AuditWorkspacePage() {
       setLastSavedAt(new Date().toISOString());
       setAutosaveState({ status: "saved", section: label, detail: `${label} saved.` });
     } else {
-      setAutosaveState({ status: "error", section: label, detail: `Autosave failed for ${label.toLowerCase()}.` });
+      setAutosaveState({
+        status: "error",
+        section: label,
+        detail: autosaveErrorsRef.current[section] || `Autosave failed for ${label.toLowerCase()}.`
+      });
     }
 
     autosaveInFlightRef.current[section] = false;
@@ -801,7 +847,7 @@ export default function AuditWorkspacePage() {
         return;
       }
       if (section === "assessments") {
-        void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true), "Assessments");
+        void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true, getChangedAssessmentItems()), "Assessments");
         return;
       }
       if (section === "details") {
@@ -828,7 +874,7 @@ export default function AuditWorkspacePage() {
     if (assessmentsSnapshot === lastSavedSnapshotsRef.current.assessments) return;
 
     const timeout = window.setTimeout(() => {
-      void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true), "Assessments");
+      void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true, getChangedAssessmentItems()), "Assessments");
     }, AUTOSAVE_DELAY_MS);
 
     return () => window.clearTimeout(timeout);
@@ -1004,14 +1050,14 @@ export default function AuditWorkspacePage() {
             <Card className="bg-slate-950/45">
               <CardContent className="space-y-4 p-5">
                 <p className="text-sm font-semibold text-slate-50">Save and export actions</p>
-                <div className={`rounded-2xl border px-4 py-3 text-sm ${autosaveIndicatorTone}`}>
-                  <p className="font-medium">{autosaveIndicatorText}</p>
-                  <p className="mt-1 text-xs text-current/80">{manualSaveHint}</p>
-                </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
                   <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
                   <Button onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
+                </div>
+                <div className={`rounded-2xl border px-4 py-3 text-sm ${autosaveIndicatorTone}`}>
+                  <p className="font-medium">{autosaveIndicatorText}</p>
+                  <p className="mt-1 text-xs text-current/80">{manualSaveHint}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={generatePdfExport} disabled={!canExport || isGeneratingPdf}><FileText className="size-4" /> {isGeneratingPdf ? "Generating PDF…" : "Generate PDF export"}</Button>
