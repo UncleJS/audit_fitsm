@@ -60,7 +60,7 @@ export default function ProcessPanel({
           <div className="grid gap-3 lg:grid-cols-3">
             <label className="grid gap-2 text-sm font-medium text-slate-300">
               <span>Scope</span>
-              <select value={scopeEdit.scopeCode} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, scopeCode: event.target.value } }))}>
+              <select value={scopeEdit.scopeCode} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, scopeCode: event.target.value } }))} onBlur={() => actions.requestScopeAutosave?.()}>
                 {(workspace.dropdowns?.scopeOptions ?? []).map((scope) => (
                   <option key={scope.code} value={scope.code}>{decodeHtmlEntities(scope.label)}</option>
                 ))}
@@ -68,7 +68,7 @@ export default function ProcessPanel({
             </label>
             <label className="grid gap-2 text-sm font-medium text-slate-300">
               <span>Cert goal</span>
-              <select value={scopeEdit.certGoalLevel} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, certGoalLevel: event.target.value } }))}>
+              <select value={scopeEdit.certGoalLevel} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, certGoalLevel: event.target.value } }))} onBlur={() => actions.requestScopeAutosave?.()}>
                 {(workspace.dropdowns?.targetLevels ?? []).map((level) => (
                   <option key={`cert-${processCode}-${level.level}`} value={String(level.level)}>{level.level} - {decodeHtmlEntities(level.label)}</option>
                 ))}
@@ -76,7 +76,7 @@ export default function ProcessPanel({
             </label>
             <label className="grid gap-2 text-sm font-medium text-slate-300">
               <span>Custom goal</span>
-              <select value={scopeEdit.customGoalLevel} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, customGoalLevel: event.target.value } }))}>
+              <select value={scopeEdit.customGoalLevel} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, customGoalLevel: event.target.value } }))} onBlur={() => actions.requestScopeAutosave?.()}>
                 <option value="">(none)</option>
                 {(workspace.dropdowns?.targetLevels ?? []).map((level) => (
                   <option key={`custom-${processCode}-${level.level}`} value={String(level.level)}>{level.level} - {decodeHtmlEntities(level.label)}</option>
@@ -122,17 +122,17 @@ export default function ProcessPanel({
                             <div className={`mt-2 text-sm text-slate-300 ${isCompact ? "leading-5" : "leading-6"}`}>{decodeHtmlEntities(req.requirementText)}</div>
                           </td>
                           <td className={isCompact ? "px-3 py-2" : undefined}>
-                            <select value={edit.scoreLabel} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setEdits((prev) => ({ ...prev, [assessmentKey]: { ...edit, scoreLabel: event.target.value } }))}>
+                            <select value={edit.scoreLabel} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setEdits((prev) => ({ ...prev, [assessmentKey]: { ...edit, scoreLabel: event.target.value } }))} onBlur={() => actions.requestAssessmentAutosave?.()}>
                               {(workspace.dropdowns?.scoreOptions ?? []).map((score) => (
                                 <option key={score.label} value={score.label}>{decodeHtmlEntities(score.label)}</option>
                               ))}
                             </select>
                           </td>
                           <td className={isCompact ? "px-3 py-2" : undefined}>
-                            <textarea rows={reqTextareaRows} value={edit.commentText} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setEdits((prev) => ({ ...prev, [assessmentKey]: { ...edit, commentText: event.target.value } }))} />
+                            <textarea rows={reqTextareaRows} value={edit.commentText} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setEdits((prev) => ({ ...prev, [assessmentKey]: { ...edit, commentText: event.target.value } }))} onBlur={() => actions.requestAssessmentAutosave?.()} />
                           </td>
                           <td className={isCompact ? "px-3 py-2" : undefined}>
-                            <textarea rows={reqTextareaRows} value={edit.evidenceText} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setEdits((prev) => ({ ...prev, [assessmentKey]: { ...edit, evidenceText: event.target.value } }))} />
+                            <textarea rows={reqTextareaRows} value={edit.evidenceText} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setEdits((prev) => ({ ...prev, [assessmentKey]: { ...edit, evidenceText: event.target.value } }))} onBlur={() => actions.requestAssessmentAutosave?.()} />
                           </td>
                           <td className={isCompact ? "px-3 py-2" : undefined}>
                             <Button size="sm" variant="secondary" className="w-full" onClick={() => actions.toggleAssessmentHistory(req.assessmentId)}>{isHistoryOpen ? "Hide" : "Open"}</Button>

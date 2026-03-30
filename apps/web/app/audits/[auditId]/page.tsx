@@ -1,7 +1,7 @@
 // @ts-nocheck
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, Download, FileText, History, Layers3, Save, Target } from "lucide-react";
@@ -17,6 +17,7 @@ import { decodeHtmlEntities } from "../../lib/text-format";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:1261";
 const demoToken = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "1" ? process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "" : "";
+const AUTOSAVE_DELAY_MS = 1500;
 
 const authHeaders = (token: string, json = false) => ({
   ...(json ? { "Content-Type": "application/json" } : {}),
@@ -46,6 +47,32 @@ export default function AuditWorkspacePage() {
   const [panelDensityByProcess, setPanelDensityByProcess] = useState<Record<string, "comfortable" | "compact">>({});
   const [activeProcessCode, setActiveProcessCode] = useState("");
   const [message, setMessage] = useState("");
+  const [lastSavedAt, setLastSavedAt] = useState("");
+  const [autosaveState, setAutosaveState] = useState<{ status: "idle" | "saving" | "saved" | "error"; section: string; detail: string }>({
+    status: "idle",
+    section: "",
+    detail: ""
+  });
+  const [autosaveRetryTick, setAutosaveRetryTick] = useState(0);
+  const lastSavedSnapshotsRef = useRef<Record<string, string>>({
+    scope: "",
+    assessments: "",
+    details: "",
+    conclusion: ""
+  });
+  const autosaveInFlightRef = useRef<Record<string, boolean>>({
+    scope: false,
+    assessments: false,
+    details: false,
+    conclusion: false
+  });
+  const autosavePendingRef = useRef<Record<string, boolean>>({
+    scope: false,
+    assessments: false,
+    details: false,
+    conclusion: false
+  });
+  const hasLoadedWorkspaceRef = useRef(false);
 
   const tokenMissing = useMemo(() => !authToken, [authToken]);
   const canEdit = workspace?.permissions?.canEdit ?? false;
@@ -56,6 +83,57 @@ export default function AuditWorkspacePage() {
   const isLockedForNonLead = workspace?.permissions?.isLockedForNonLead ?? false;
   const allowedStatusTransitions = workspace?.permissions?.allowedStatusTransitions ?? [];
   const auditStatus = String(workspace?.audit?.status ?? "");
+  const scopeSnapshot = useMemo(
+    () =>
+      JSON.stringify(
+        Object.values(scopeEdits)
+          .map((item: any) => ({
+            processCode: String(item.processCode ?? ""),
+            certGoalLevel: String(item.certGoalLevel ?? "2"),
+            customGoalLevel: String(item.customGoalLevel ?? ""),
+            scopeCode: String(item.scopeCode ?? "IN_SCOPE")
+          }))
+          .sort((left: any, right: any) => left.processCode.localeCompare(right.processCode))
+      ),
+    [scopeEdits]
+  );
+  const assessmentsSnapshot = useMemo(
+    () =>
+      JSON.stringify(
+        Object.values(edits)
+          .map((item: any) => ({
+            requirementCode: String(item.requirementCode ?? ""),
+            scoreLabel: String(item.scoreLabel ?? "Select …"),
+            commentText: String(item.commentText ?? ""),
+            evidenceText: String(item.evidenceText ?? "")
+          }))
+          .sort((left: any, right: any) => left.requirementCode.localeCompare(right.requirementCode))
+      ),
+    [edits]
+  );
+  const detailsSnapshot = useMemo(
+    () =>
+      JSON.stringify(
+        Object.values(detailEdits)
+          .map((item: any) => ({
+            fieldKey: String(item.fieldKey ?? ""),
+            responseText: String(item.responseText ?? ""),
+            noteText: String(item.noteText ?? "")
+          }))
+          .sort((left: any, right: any) => left.fieldKey.localeCompare(right.fieldKey))
+      ),
+    [detailEdits]
+  );
+  const conclusionSnapshot = useMemo(
+    () => JSON.stringify({ conclusionText: String(conclusionEdit ?? "") }),
+    [conclusionEdit]
+  );
+  const hasUnsavedChanges = !!workspace && (
+    scopeSnapshot !== lastSavedSnapshotsRef.current.scope ||
+    assessmentsSnapshot !== lastSavedSnapshotsRef.current.assessments ||
+    detailsSnapshot !== lastSavedSnapshotsRef.current.details ||
+    conclusionSnapshot !== lastSavedSnapshotsRef.current.conclusion
+  );
 
   const loadWorkspace = async () => {
     const res = await fetch(`${apiUrl}/audits/${auditId}/workspace`, {
@@ -71,6 +149,7 @@ export default function AuditWorkspacePage() {
         return;
       }
       setWorkspace(null);
+      hasLoadedWorkspaceRef.current = false;
       setMessage("Unable to load audit workspace.");
       return;
     }
@@ -116,6 +195,47 @@ export default function AuditWorkspacePage() {
     }
     setDetailEdits(nextDetails);
     setConclusionEdit(data.conclusion?.conclusion_text ?? "");
+    lastSavedSnapshotsRef.current = {
+      scope: JSON.stringify(
+        Object.values(nextScopeEdits)
+          .map((item: any) => ({
+            processCode: String(item.processCode ?? ""),
+            certGoalLevel: String(item.certGoalLevel ?? "2"),
+            customGoalLevel: String(item.customGoalLevel ?? ""),
+            scopeCode: String(item.scopeCode ?? "IN_SCOPE")
+          }))
+          .sort((left: any, right: any) => left.processCode.localeCompare(right.processCode))
+      ),
+      assessments: JSON.stringify(
+        Object.values(nextEdits)
+          .map((item: any) => ({
+            requirementCode: String(item.requirementCode ?? ""),
+            scoreLabel: String(item.scoreLabel ?? "Select …"),
+            commentText: String(item.commentText ?? ""),
+            evidenceText: String(item.evidenceText ?? "")
+          }))
+          .sort((left: any, right: any) => left.requirementCode.localeCompare(right.requirementCode))
+      ),
+      details: JSON.stringify(
+        Object.values(nextDetails)
+          .map((item: any) => ({
+            fieldKey: String(item.fieldKey ?? ""),
+            responseText: String(item.responseText ?? ""),
+            noteText: String(item.noteText ?? "")
+          }))
+          .sort((left: any, right: any) => left.fieldKey.localeCompare(right.fieldKey))
+      ),
+      conclusion: JSON.stringify({ conclusionText: String(data.conclusion?.conclusion_text ?? "") })
+    };
+    autosavePendingRef.current = {
+      scope: false,
+      assessments: false,
+      details: false,
+      conclusion: false
+    };
+    hasLoadedWorkspaceRef.current = true;
+    setAutosaveState({ status: "idle", section: "", detail: "" });
+    setLastSavedAt(String(data.audit?.updated_at ?? ""));
 
     const exportsRes = await fetch(`${apiUrl}/audits/${auditId}/exports`, {
       headers: authHeaders(authToken),
@@ -195,26 +315,6 @@ export default function AuditWorkspacePage() {
       document.getElementById(`process-${String(processCode).toLowerCase()}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
-
-  if (!mounted) {
-    return (
-      <PageShell>
-        <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit data." >
-          <p className="text-sm text-slate-400">Preparing requirements, exports, and activity…</p>
-        </PageSection>
-      </PageShell>
-    );
-  }
-
-  if (tokenMissing) {
-    return (
-      <PageShell>
-        <PageSection title="Audit workspace" eyebrow="Audit" description="Redirecting to login." >
-          <p className="text-sm text-slate-400">A valid session is required for audit scoring and exports.</p>
-        </PageSection>
-      </PageShell>
-    );
-  }
 
   const formatBytes = (value?: number) => {
     const bytes = Number(value ?? 0);
@@ -382,6 +482,7 @@ export default function AuditWorkspacePage() {
     }
 
     setMessage("Audit status updated.");
+    setLastSavedAt(new Date().toISOString());
     await loadWorkspace();
   };
 
@@ -421,6 +522,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Scope and targets saved.");
     }
+    setLastSavedAt(new Date().toISOString());
 
     if (reloadAfter) {
       await loadWorkspace();
@@ -464,6 +566,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Assessment updates saved.");
     }
+    setLastSavedAt(new Date().toISOString());
     if (reloadAfter) {
       await loadWorkspace();
     }
@@ -571,6 +674,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Audit details saved.");
     }
+    setLastSavedAt(new Date().toISOString());
     if (reloadAfter) {
       await loadWorkspace();
     }
@@ -606,6 +710,7 @@ export default function AuditWorkspacePage() {
     if (!silent) {
       setMessage("Conclusion saved.");
     }
+    setLastSavedAt(new Date().toISOString());
     if (reloadAfter) {
       await loadWorkspace();
     }
@@ -648,6 +753,152 @@ export default function AuditWorkspacePage() {
     await loadWorkspace();
   };
 
+  const runAutosaveSection = async (
+    section: "scope" | "assessments" | "details" | "conclusion",
+    snapshot: string,
+    saveAction: () => Promise<boolean>,
+    label: string
+  ) => {
+    if (!workspace || !hasLoadedWorkspaceRef.current || snapshot === lastSavedSnapshotsRef.current[section]) {
+      return;
+    }
+
+    if (autosaveInFlightRef.current[section]) {
+      autosavePendingRef.current[section] = true;
+      return;
+    }
+
+    autosaveInFlightRef.current[section] = true;
+    setAutosaveState({ status: "saving", section: label, detail: `Saving ${label.toLowerCase()}…` });
+
+    let ok = false;
+    try {
+      ok = await saveAction();
+    } catch {
+      ok = false;
+    }
+
+    if (ok) {
+      lastSavedSnapshotsRef.current[section] = snapshot;
+      setLastSavedAt(new Date().toISOString());
+      setAutosaveState({ status: "saved", section: label, detail: `${label} saved.` });
+    } else {
+      setAutosaveState({ status: "error", section: label, detail: `Autosave failed for ${label.toLowerCase()}.` });
+    }
+
+    autosaveInFlightRef.current[section] = false;
+
+    if (autosavePendingRef.current[section]) {
+      autosavePendingRef.current[section] = false;
+      setAutosaveRetryTick((current) => current + 1);
+    }
+  };
+
+  const requestImmediateAutosave = (section: "scope" | "assessments" | "details" | "conclusion") => {
+    window.setTimeout(() => {
+      if (section === "scope") {
+        void runAutosaveSection("scope", scopeSnapshot, () => saveScopeTargets(false, true), "Scope & targets");
+        return;
+      }
+      if (section === "assessments") {
+        void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true), "Assessments");
+        return;
+      }
+      if (section === "details") {
+        void runAutosaveSection("details", detailsSnapshot, () => saveAuditDetails(false, true), "Audit details");
+        return;
+      }
+      void runAutosaveSection("conclusion", conclusionSnapshot, () => saveConclusion(false, true), "Conclusion");
+    }, 50);
+  };
+
+  useEffect(() => {
+    if (!mounted || !workspace || !authToken || !hasLoadedWorkspaceRef.current || !canManageScopeTargets) return;
+    if (scopeSnapshot === lastSavedSnapshotsRef.current.scope) return;
+
+    const timeout = window.setTimeout(() => {
+      void runAutosaveSection("scope", scopeSnapshot, () => saveScopeTargets(false, true), "Scope & targets");
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [mounted, workspace, authToken, canManageScopeTargets, scopeSnapshot, autosaveRetryTick]);
+
+  useEffect(() => {
+    if (!mounted || !workspace || !authToken || !hasLoadedWorkspaceRef.current || !canEdit) return;
+    if (assessmentsSnapshot === lastSavedSnapshotsRef.current.assessments) return;
+
+    const timeout = window.setTimeout(() => {
+      void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true), "Assessments");
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [mounted, workspace, authToken, canEdit, assessmentsSnapshot, autosaveRetryTick]);
+
+  useEffect(() => {
+    if (!mounted || !workspace || !authToken || !hasLoadedWorkspaceRef.current || !canEdit) return;
+    if (detailsSnapshot === lastSavedSnapshotsRef.current.details) return;
+
+    const timeout = window.setTimeout(() => {
+      void runAutosaveSection("details", detailsSnapshot, () => saveAuditDetails(false, true), "Audit details");
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [mounted, workspace, authToken, canEdit, detailsSnapshot, autosaveRetryTick]);
+
+  useEffect(() => {
+    if (!mounted || !workspace || !authToken || !hasLoadedWorkspaceRef.current || !canLeadEdit) return;
+    if (conclusionSnapshot === lastSavedSnapshotsRef.current.conclusion) return;
+
+    const timeout = window.setTimeout(() => {
+      void runAutosaveSection("conclusion", conclusionSnapshot, () => saveConclusion(false, true), "Conclusion");
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [mounted, workspace, authToken, canLeadEdit, conclusionSnapshot, autosaveRetryTick]);
+
+  const autosaveIndicatorTone = autosaveState.status === "error"
+    ? "border-rose-500/30 bg-rose-500/10 text-rose-100"
+    : autosaveState.status === "saving" || hasUnsavedChanges
+      ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
+      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
+  const autosaveIndicatorText = autosaveState.status === "error"
+    ? autosaveState.detail || "Autosave failed."
+    : autosaveState.status === "saving"
+      ? autosaveState.detail || "Saving changes…"
+      : hasUnsavedChanges
+        ? `Unsaved changes — autosaving in ${Number(AUTOSAVE_DELAY_MS / 1000).toFixed(1)}s.`
+        : "All changes saved.";
+  const lastSavedText = lastSavedAt ? `Last saved ${formatLocalTimestamp(lastSavedAt)}` : "No saved changes yet in this session.";
+  const manualSaveHint = !workspace
+    ? "Save buttons appear once the audit workspace has loaded."
+    : canLeadEdit
+      ? "Autosave is on. Use any save button whenever you want an explicit checkpoint."
+      : canEdit || canManageScopeTargets
+        ? "Autosave is on. Conclusion and Save all require lead auditor or org admin access."
+        : isLockedForNonLead
+          ? "This audit is completed and read-only for your role."
+          : "This audit is read-only for your current role.";
+
+  if (!mounted) {
+    return (
+      <PageShell>
+        <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit data." >
+          <p className="text-sm text-slate-400">Preparing requirements, exports, and activity…</p>
+        </PageSection>
+      </PageShell>
+    );
+  }
+
+  if (tokenMissing) {
+    return (
+      <PageShell>
+        <PageSection title="Audit workspace" eyebrow="Audit" description="Redirecting to login." >
+          <p className="text-sm text-slate-400">A valid session is required for audit scoring and exports.</p>
+        </PageSection>
+      </PageShell>
+    );
+  }
+
   if (!workspace) {
     return (
       <PageShell>
@@ -686,7 +937,7 @@ export default function AuditWorkspacePage() {
 
   return (
     <>
-      <PageShell className="pb-28 lg:pb-6">
+      <PageShell className="pb-44 lg:pb-24">
         <PageSection
           title={decodeHtmlEntities(workspace.audit.name)}
           eyebrow="Audit workspace"
@@ -708,6 +959,23 @@ export default function AuditWorkspacePage() {
               </Card>
             ))}
           </div>
+
+          <Card className="border-sky-500/35 bg-slate-950/65">
+            <CardContent className="space-y-4 p-5">
+              <div>
+                <p className="text-sm font-semibold text-slate-50">Manual save buttons</p>
+                <p className="mt-1 text-sm text-slate-300">These buttons are always available here near the top of the audit page.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
+                <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
+                <Button variant="secondary" onClick={() => saveAuditDetails()} disabled={!canEdit}><Save className="size-4" /> Save details</Button>
+                <Button variant="secondary" onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>
+                <Button onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
+              </div>
+              <div className="text-xs text-slate-400">{manualSaveHint}</div>
+            </CardContent>
+          </Card>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,320px)_1fr]">
             <Card className="bg-slate-950/45">
@@ -736,6 +1004,10 @@ export default function AuditWorkspacePage() {
             <Card className="bg-slate-950/45">
               <CardContent className="space-y-4 p-5">
                 <p className="text-sm font-semibold text-slate-50">Save and export actions</p>
+                <div className={`rounded-2xl border px-4 py-3 text-sm ${autosaveIndicatorTone}`}>
+                  <p className="font-medium">{autosaveIndicatorText}</p>
+                  <p className="mt-1 text-xs text-current/80">{manualSaveHint}</p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
                   <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
@@ -753,6 +1025,26 @@ export default function AuditWorkspacePage() {
           </div>
         </PageSection>
 
+        <div className="sticky top-4 z-30 mb-6 rounded-2xl border border-slate-800/80 bg-slate-950/95 px-4 py-3 backdrop-blur lg:px-5">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-50">Save controls</p>
+                <p className="text-xs text-slate-400">{autosaveIndicatorText}</p>
+                <p className="mt-1 text-xs text-slate-500">{lastSavedText}</p>
+              </div>
+              <div className="text-xs text-slate-500 lg:max-w-sm lg:text-right">{manualSaveHint}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope</Button>
+              <Button size="sm" variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
+              <Button size="sm" variant="secondary" onClick={() => saveAuditDetails()} disabled={!canEdit}><Save className="size-4" /> Save details</Button>
+              <Button size="sm" variant="secondary" onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>
+              <Button size="sm" onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
           <ProcessSidebarNav processes={groupedProcesses} activeProcessCode={activeProcessCode} onJump={scrollToProcess} />
 
@@ -761,6 +1053,7 @@ export default function AuditWorkspacePage() {
               title="1. Scope & requirements by process"
               eyebrow="Execution"
               description="Each process panel now isolates scope settings, density controls, and requirement scoring to keep work focused."
+              action={<Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>}
             >
               <div className="grid gap-4">
                 {groupedProcesses.map((group: any) => (
@@ -780,7 +1073,7 @@ export default function AuditWorkspacePage() {
                       setNoteDraftByAssessment
                     }}
                     permissions={{ canManageScopeTargets, canEdit }}
-                    actions={{ updatePanelDensity, toggleAssessmentHistory, addAssessmentNote }}
+                     actions={{ updatePanelDensity, toggleAssessmentHistory, addAssessmentNote, requestScopeAutosave: () => requestImmediateAutosave("scope"), requestAssessmentAutosave: () => requestImmediateAutosave("assessments") }}
                   />
                 ))}
               </div>
@@ -864,10 +1157,10 @@ export default function AuditWorkspacePage() {
                             {detail.guidance_text ? <div className="mt-2 text-sm text-slate-400">{decodeHtmlEntities(detail.guidance_text)}</div> : null}
                           </td>
                           <td>
-                            <textarea rows={3} value={edit.responseText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, responseText: event.target.value } }))} />
+                            <textarea rows={3} value={edit.responseText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, responseText: event.target.value } }))} onBlur={() => requestImmediateAutosave("details")} />
                           </td>
                           <td>
-                            <textarea rows={3} value={edit.noteText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, noteText: event.target.value } }))} />
+                            <textarea rows={3} value={edit.noteText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, noteText: event.target.value } }))} onBlur={() => requestImmediateAutosave("details")} />
                           </td>
                         </tr>
                       );
@@ -880,7 +1173,7 @@ export default function AuditWorkspacePage() {
             <PageSection title="5. Conclusion" eyebrow="Wrap-up" description="Record the overall conclusion separately from detailed notes and requirement evidence."
               action={<Button onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>}
             >
-              <textarea rows={8} value={conclusionEdit} disabled={!canLeadEdit} onChange={(event) => setConclusionEdit(event.target.value)} placeholder="Enter audit conclusion" />
+              <textarea rows={8} value={conclusionEdit} disabled={!canLeadEdit} onChange={(event) => setConclusionEdit(event.target.value)} onBlur={() => requestImmediateAutosave("conclusion")} placeholder="Enter audit conclusion" />
               <div className="text-sm text-slate-400">
                 <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Back to clients and audits</Link>
               </div>
