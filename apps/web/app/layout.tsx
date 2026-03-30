@@ -13,9 +13,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning className="min-h-screen">
         <div className="relative min-h-screen">
-          <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.10),transparent_20%),radial-gradient(circle_at_left,rgba(96,165,250,0.08),transparent_30%)]" />
+          <div className="app-shell-aura pointer-events-none absolute inset-0 -z-10" />
           <TopNav />
-          {children}
+          <div className="mx-auto w-full max-w-[1664px] px-4 py-4 sm:px-6 lg:px-8">
+            <div className="app-page-canvas min-h-[calc(100vh-12rem)] rounded-[32px] border border-slate-800/60">
+              {children}
+            </div>
+          </div>
           <footer className="border-t border-slate-800/80 px-4 py-8 text-center text-sm text-slate-400 sm:px-6 lg:px-8">
             <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
             <a href="https://img.shields.io" target="_blank" rel="noreferrer">
