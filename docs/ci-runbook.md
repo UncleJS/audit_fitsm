@@ -116,6 +116,17 @@ DB_PORT=2262 APP_PORT=2261 WEB_PORT=2260 bash ./scripts/ci-strict.sh
   - inspect `/tmp/web.log`
   - if needed, tune readiness attempt count in `health-readiness.ts`
 
+### 5b) Docs route failure
+
+- Symptom: integration or readiness checks fail when validating `/docs` or `/openapi.json`.
+- Typical causes:
+  - API started without the expected OpenAPI asset
+  - CSP or docs route regression
+- Fix:
+  - inspect API startup logs
+  - verify `apps/api/openapi/openapi.json` is present in the runtime image
+  - reproduce via the integration suite inside the dev container
+
 ### 6) Strict integration-suite failure
 
 - Symptom: readiness passes basic checks but fails on integration.

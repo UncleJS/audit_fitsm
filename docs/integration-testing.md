@@ -21,6 +21,7 @@ The suite validates:
 - auth/login
 - client + audit creation
 - workspace/scope/assessment updates
+- autosave-backed workspace update endpoints
 - notes/history
 - details/conclusion updates
 - status transitions and completed-audit lock
@@ -31,6 +32,7 @@ The suite validates:
 - org RBAC admin endpoints
 - client-scoped user enforcement (non-system-admin cross-client assignment blocked)
 - web HTML-entity decoding regression (`&amp;` -> `&`)
+- Swagger UI and OpenAPI docs availability
 
 [Go to TOC](#table-of-contents)
 
@@ -91,6 +93,11 @@ Failure behavior:
 
 - exits non-zero
 - prints failing step, status code, and response body snippet
+
+Coverage note:
+
+- the integration suite validates the API endpoints used by autosave and manual save controls
+- browser timing/blur behavior remains a frontend interaction concern, but the underlying save endpoints are covered end-to-end
 
 [Go to TOC](#table-of-contents)
 

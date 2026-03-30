@@ -10,6 +10,7 @@ Base URL: `http://localhost:1261`
 
 - [Auth](#auth)
 - [Health and readiness](#health-and-readiness)
+- [OpenAPI and Swagger](#openapi-and-swagger)
 - [Clients (organizations)](#clients-organizations)
 - [Audits](#audits)
 - [Scope / Targets](#scope--targets)
@@ -39,6 +40,19 @@ Behavior notes:
 
 [Go to TOC](#table-of-contents)
 
+## OpenAPI and Swagger
+
+- `GET /openapi.json`
+- `GET /docs`
+
+Behavior notes:
+
+- Swagger UI is available at `/docs`
+- raw OpenAPI JSON is available at `/openapi.json`
+- integration tests validate docs availability and the expected Swagger CSP behavior
+
+[Go to TOC](#table-of-contents)
+
 ## Clients (organizations)
 
 - `GET /clients`
@@ -64,6 +78,7 @@ Behavior notes:
 Behavior notes:
 
 - `POST /orgs/:orgId/audits` accepts `certGoalLevel` and applies it to all process targets at creation.
+- `GET /audits/:auditId/workspace` returns the combined workspace payload used by the audit page.
 
 [Go to TOC](#table-of-contents)
 
@@ -74,6 +89,7 @@ Behavior notes:
 Behavior notes:
 
 - Scope/cert-goal target updates are allowed only while audit status is `draft`.
+- The web workspace uses this endpoint for both autosave and explicit manual save actions.
 
 [Go to TOC](#table-of-contents)
 
@@ -85,6 +101,13 @@ Behavior notes:
 - `GET /assessments/:assessmentId/history`
 - `POST /assessments/:assessmentId/archive`
 - `POST /assessments/:assessmentId/restore`
+
+[Go to TOC](#table-of-contents)
+
+Behavior notes:
+
+- assessment score, comment, and evidence updates are saved through `PUT /audits/:auditId/assessments`
+- the web workspace uses both debounced autosave and visible manual save controls for these updates
 
 [Go to TOC](#table-of-contents)
 
@@ -109,6 +132,12 @@ Behavior notes:
 - `PUT /audits/:auditId/details`
 - `GET /audits/:auditId/conclusion`
 - `PUT /audits/:auditId/conclusion`
+
+Behavior notes:
+
+- details can be edited by normal audit editors while the audit is writable
+- conclusion editing requires lead-auditor-level access
+- the web workspace autosaves these fields and also exposes `Save details` and `Save conclusion` actions
 
 [Go to TOC](#table-of-contents)
 
