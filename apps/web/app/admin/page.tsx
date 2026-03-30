@@ -2,6 +2,15 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Settings2, Shield, Users } from "lucide-react";
+import ClientsTab from "../components/admin/clients-tab";
+import UsersTab from "../components/admin/users-tab";
+import PageShell from "../components/layout/page-shell";
+import PageSection from "../components/layout/page-section";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Card, CardContent } from "../components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { decodeHtmlEntities } from "../lib/text-format";
 
 type ClientRow = { id: number; name: string };
@@ -26,31 +35,17 @@ const authHeaders = (token: string, json = false) => ({
 
 const toUiError = (status: number, body: any, fallback: string): string => {
   const raw = String(body?.error ?? "").toLowerCase();
-
-  if (
-    status === 409 &&
-    raw.includes("already scoped to another client")
-  ) {
+  if (status === 409 && raw.includes("already scoped to another client")) {
     return "This user already belongs to another client. Only system admins can assign users across multiple clients.";
   }
-
   if (status === 400 && raw.includes("invalid user payload")) {
     const fieldErrors = body?.details?.fieldErrors ?? {};
     const messages = Object.entries(fieldErrors)
-      .flatMap(([field, values]) =>
-        Array.isArray(values)
-          ? values.map((value) => `${field}: ${String(value)}`)
-          : []
-      )
+      .flatMap(([field, values]) => (Array.isArray(values) ? values.map((value) => `${field}: ${String(value)}`) : []))
       .filter(Boolean);
-
-    if (messages.length) {
-      return `Invalid user payload — ${messages.join(" | ")}`;
-    }
-
-    return "Invalid user payload — check email format, display name (min 2 chars), password (min 8 chars), and roles.";
+    if (messages.length) return `Invalid user payload — ${messages.join(" | ")}`;
+    return "Invalid user payload — check email format, display name, password length, and roles.";
   }
-
   return String(body?.error ?? fallback);
 };
 
@@ -107,10 +102,7 @@ export default function AdminPage() {
   }, [message]);
 
   const isRbacCompact = rbacDensity === "compact";
-  const rbacTableSpacing = isRbacCompact ? "0 6px" : "0 10px";
-  const rbacCellPadding = isRbacCompact ? 7 : 10;
-  const rbacRoleGridCols = isRbacCompact ? "repeat(3, minmax(95px, 1fr))" : "repeat(2, minmax(120px, 1fr))";
-  const rbacRoleGap = isRbacCompact ? 4 : 6;
+  const roleGridCols = isRbacCompact ? "grid-cols-3" : "grid-cols-2";
 
   const loadClients = async () => {
     const res = await fetch(`${apiUrl}/clients`, {
@@ -131,9 +123,7 @@ export default function AdminPage() {
 
     const data = (await res.json()) as ClientRow[];
     setClients(data);
-    if (!selectedClientId && data.length) {
-      setSelectedClientId(data[0].id);
-    }
+    if (!selectedClientId && data.length) setSelectedClientId(data[0].id);
   };
 
   const loadRoles = async () => {
@@ -141,12 +131,10 @@ export default function AdminPage() {
       headers: authHeaders(authToken),
       cache: "no-store"
     });
-
     if (!res.ok) {
       setRolesCatalog([]);
       return;
     }
-
     setRolesCatalog((await res.json()) as RoleRow[]);
   };
 
@@ -155,7 +143,6 @@ export default function AdminPage() {
       headers: authHeaders(authToken),
       cache: "no-store"
     });
-
     if (!res.ok) {
       setOrgUsers([]);
       return;
@@ -164,9 +151,7 @@ export default function AdminPage() {
     const users = (await res.json()) as OrgUserRow[];
     setOrgUsers(users);
     const nextEdits: Record<string, string[]> = {};
-    for (const user of users) {
-      nextEdits[String(user.id)] = [...(user.roles ?? [])];
-    }
+    for (const user of users) nextEdits[String(user.id)] = [...(user.roles ?? [])];
     setRoleEditsByUserId(nextEdits);
   };
 
@@ -175,13 +160,10 @@ export default function AdminPage() {
     if (!apiUrlFromEnv) {
       setApiUrl(`${window.location.protocol}//${window.location.hostname}:1261`);
     }
-
     const storedToken = window.sessionStorage.getItem("audit_fitsm_token") || "";
     const storedDensity = window.sessionStorage.getItem("audit_fitsm_rbac_density");
     setAuthToken(storedToken || demoToken);
-    if (storedDensity === "compact" || storedDensity === "comfortable") {
-      setRbacDensity(storedDensity);
-    }
+    if (storedDensity === "compact" || storedDensity === "comfortable") setRbacDensity(storedDensity);
     setMounted(true);
   }, []);
 
@@ -202,57 +184,49 @@ export default function AdminPage() {
 
     if (!hasAdminAccess) {
       setMessage("Admin role required. Redirecting to Clients page...");
-      const t = setTimeout(() => {
-        if (typeof window !== "undefined") {
-          window.location.href = "/clients";
-        }
+      const timeout = setTimeout(() => {
+        if (typeof window !== "undefined") window.location.href = "/clients";
       }, 900);
-      return () => clearTimeout(t);
+      return () => clearTimeout(timeout);
     }
 
-    Promise.all([loadClients(), loadRoles()]);
+    void Promise.all([loadClients(), loadRoles()]);
   }, [authToken, hasAdminAccess]);
 
   useEffect(() => {
     if (selectedClientId && authToken && hasAdminAccess) {
-      loadOrgUsers(selectedClientId);
+      void loadOrgUsers(selectedClientId);
     }
   }, [selectedClientId, authToken, hasAdminAccess]);
 
   if (!mounted) {
     return (
-      <main className="container grid" suppressHydrationWarning>
-        <section className="card">
-          <h1>Admin</h1>
-          <p>Loading admin workspace…</p>
-        </section>
-      </main>
+      <PageShell>
+        <PageSection title="Admin workspace" eyebrow="Admin" description="Loading client and access controls.">
+          <p className="text-sm text-slate-400">Preparing administrative tools…</p>
+        </PageSection>
+      </PageShell>
     );
   }
 
   if (tokenMissing) {
     return (
-      <main className="container grid" suppressHydrationWarning>
-        <section className="card">
-          <h1>Admin</h1>
-          <p>Redirecting to login…</p>
-        </section>
-      </main>
+      <PageShell>
+        <PageSection title="Admin workspace" eyebrow="Admin" description="Redirecting to login.">
+          <p className="text-sm text-slate-400">You need an authenticated admin session to continue.</p>
+        </PageSection>
+      </PageShell>
     );
   }
 
   const toggleRoleSelection = (roles: string[], roleCode: string): string[] => {
-    if (roles.includes(roleCode)) {
-      return roles.filter((role) => role !== roleCode);
-    }
+    if (roles.includes(roleCode)) return roles.filter((role) => role !== roleCode);
     return [...roles, roleCode];
   };
 
   const updateRbacDensity = (density: "comfortable" | "compact") => {
     setRbacDensity(density);
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem("audit_fitsm_rbac_density", density);
-    }
+    if (typeof window !== "undefined") window.sessionStorage.setItem("audit_fitsm_rbac_density", density);
   };
 
   const createOrgUser = async (event: FormEvent<HTMLFormElement>) => {
@@ -262,39 +236,18 @@ export default function AdminPage() {
     const email = newUserEmail.trim();
     const displayName = newUserDisplayName.trim();
     const password = newUserPassword;
-
-    if (!selectedClientId) {
-      setMessage("Select a client first.");
-      return;
-    }
-    if (!email || !email.includes("@")) {
-      setMessage("Enter a valid email address.");
-      return;
-    }
-    if (displayName.length < 2) {
-      setMessage("Display name must be at least 2 characters.");
-      return;
-    }
-    if (password.length < 8) {
-      setMessage("Temporary password must be at least 8 characters.");
-      return;
-    }
-    if (newUserRoles.length === 0) {
-      setMessage("Select at least one role.");
-      return;
-    }
+    if (!selectedClientId) return setMessage("Select a client first.");
+    if (!email || !email.includes("@")) return setMessage("Enter a valid email address.");
+    if (displayName.length < 2) return setMessage("Display name must be at least 2 characters.");
+    if (password.length < 8) return setMessage("Temporary password must be at least 8 characters.");
+    if (newUserRoles.length === 0) return setMessage("Select at least one role.");
 
     setIsCreatingUser(true);
     try {
       const res = await fetch(`${apiUrl}/orgs/${selectedClientId}/users`, {
         method: "POST",
         headers: authHeaders(authToken, true),
-        body: JSON.stringify({
-          email,
-          password,
-          displayName,
-          roles: newUserRoles
-        })
+        body: JSON.stringify({ email, password, displayName, roles: newUserRoles })
       });
 
       if (!res.ok) {
@@ -316,17 +269,11 @@ export default function AdminPage() {
 
   const saveUserRoles = async (userId: number) => {
     setMessage("");
-    if (!selectedClientId) {
-      setMessage("Select a client first.");
-      return;
-    }
+    if (!selectedClientId) return setMessage("Select a client first.");
 
     const key = String(userId);
     const roles = roleEditsByUserId[key] ?? [];
-    if (roles.length === 0) {
-      setMessage("At least one role is required. Use Archive in Client to remove all roles.");
-      return;
-    }
+    if (roles.length === 0) return setMessage("At least one role is required. Use Archive in Client to remove all roles.");
 
     setSavingRolesByUserId((prev) => ({ ...prev, [key]: true }));
     try {
@@ -351,10 +298,7 @@ export default function AdminPage() {
 
   const archiveUserInClient = async (userId: number) => {
     setMessage("");
-    if (!selectedClientId) {
-      setMessage("Select a client first.");
-      return;
-    }
+    if (!selectedClientId) return setMessage("Select a client first.");
 
     const key = String(userId);
     setSavingRolesByUserId((prev) => ({ ...prev, [key]: true }));
@@ -364,13 +308,11 @@ export default function AdminPage() {
         headers: authHeaders(authToken, true),
         body: JSON.stringify({ roles: [] })
       });
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setMessage(body.error ?? "User archive failed.");
         return;
       }
-
       setMessage(`User ${userId} archived in selected client.`);
       await loadOrgUsers(selectedClientId);
     } finally {
@@ -381,7 +323,6 @@ export default function AdminPage() {
   const createClient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage("");
-
     setIsCreatingClient(true);
     try {
       const res = await fetch(`${apiUrl}/clients`, {
@@ -389,7 +330,6 @@ export default function AdminPage() {
         headers: authHeaders(authToken, true),
         body: JSON.stringify({ name: newClientName })
       });
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setMessage(body.error ?? "Client creation failed.");
@@ -406,262 +346,100 @@ export default function AdminPage() {
     }
   };
 
+  const messageTone = {
+    info: "border-sky-500/25 bg-sky-500/10 text-sky-100",
+    success: "border-emerald-500/25 bg-emerald-500/10 text-emerald-100",
+    warning: "border-amber-500/25 bg-amber-500/10 text-amber-100",
+    error: "border-rose-500/25 bg-rose-500/10 text-rose-100"
+  }[messageVariant];
+
   return (
-    <main className="container grid">
-      <section className="card">
-        <h1>Admin</h1>
-        <p>Manage users, roles, and client-level access.</p>
-        {message ? (
-          <div
-            role="status"
-            aria-live="polite"
-            style={{
-              marginTop: 10,
-              borderRadius: 10,
-              border:
-                messageVariant === "warning"
-                  ? "1px solid #f6c343"
-                  : messageVariant === "error"
-                    ? "1px solid #f87171"
-                    : messageVariant === "success"
-                      ? "1px solid #4ade80"
-                      : "1px solid #60a5fa",
-              background:
-                messageVariant === "warning"
-                  ? "#2b2308"
-                  : messageVariant === "error"
-                    ? "#2c1212"
-                    : messageVariant === "success"
-                      ? "#0f2a1b"
-                      : "#0f1f3a",
-              color:
-                messageVariant === "warning"
-                  ? "#fde68a"
-                  : messageVariant === "error"
-                    ? "#fecaca"
-                    : messageVariant === "success"
-                      ? "#bbf7d0"
-                      : "#bfdbfe",
-              padding: "10px 12px",
-              fontWeight: 600
-            }}
-          >
-            {message}
-          </div>
-        ) : null}
-      </section>
+    <PageShell>
+      <PageSection
+        title="Admin workspace"
+        eyebrow="Administration"
+        description="Manage clients and organization-level access in two clear lanes: client setup and role assignment."
+      >
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card className="bg-slate-950/45">
+            <CardContent className="flex items-center gap-4 p-4">
+              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Shield className="size-4" /></span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Admin access</p>
+                <p className="mt-2 text-lg font-semibold text-slate-50">{hasAdminAccess ? "Granted" : "Checking"}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-slate-950/45">
+            <CardContent className="flex items-center gap-4 p-4">
+              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Settings2 className="size-4" /></span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Clients</p>
+                <p className="mt-2 text-lg font-semibold text-slate-50">{clients.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="bg-slate-950/45">
+            <CardContent className="flex items-center gap-4 p-4">
+              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Users className="size-4" /></span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Users in selected client</p>
+                <p className="mt-2 text-lg font-semibold text-slate-50">{orgUsers.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {message ? <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${messageTone}`}>{message}</div> : null}
+      </PageSection>
 
       {!tokenMissing && hasAdminAccess ? (
-        <>
-          <section className="card">
-            <h2>1) Client Administration</h2>
-            <form onSubmit={createClient} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <input
-                value={newClientName}
-                onChange={(event) => setNewClientName(event.target.value)}
-                placeholder="New client name"
-                required
+        <PageSection
+          title="Administrative tasks"
+          eyebrow="Work areas"
+          description="Use tabs to switch between client setup and per-client RBAC without mixing the workflows."
+        >
+          <Tabs defaultValue="clients" className="w-full">
+            <TabsList>
+              <TabsTrigger value="clients">Clients</TabsTrigger>
+              <TabsTrigger value="users">Users & roles</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="clients">
+              <ClientsTab createClient={createClient} newClientName={newClientName} setNewClientName={setNewClientName} isCreatingClient={isCreatingClient} clients={clients} selectedClientId={selectedClientId} setSelectedClientId={setSelectedClientId} />
+            </TabsContent>
+
+            <TabsContent value="users">
+              <UsersTab
+                clientControls={{ clients, selectedClientId, setSelectedClientId, rbacDensity, updateRbacDensity, roleGridCols }}
+                createUserForm={{
+                  onSubmit: createOrgUser,
+                  email: newUserEmail,
+                  setEmail: setNewUserEmail,
+                  displayName: newUserDisplayName,
+                  setDisplayName: setNewUserDisplayName,
+                  password: newUserPassword,
+                  setPassword: setNewUserPassword,
+                  rolesCatalog,
+                  selectedRoles: newUserRoles,
+                  setSelectedRoles: setNewUserRoles,
+                  toggleRoleSelection,
+                  isCreating: isCreatingUser
+                }}
+                userTable={{
+                  orgUsers,
+                  roleEditsByUserId,
+                  savingRolesByUserId,
+                  saveUserRoles,
+                  archiveUserInClient,
+                  tokenMissing,
+                  setRoleEditsByUserId
+                }}
               />
-              <button type="submit" disabled={isCreatingClient}>
-                {isCreatingClient ? "Creating..." : "Create Client"}
-              </button>
-            </form>
-          </section>
-
-          <section className="card">
-            <h2>2) RBAC Administration (Selected Client)</h2>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
-            <label htmlFor="admin-client-select">Client:</label>
-            <select
-              id="admin-client-select"
-              value={selectedClientId ?? ""}
-              onChange={(event) => setSelectedClientId(Number(event.target.value))}
-            >
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {decodeHtmlEntities(client.name)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
-            <span style={{ color: "#c8d4ff" }}>Density:</span>
-            <button
-              type="button"
-              onClick={() => updateRbacDensity("comfortable")}
-              style={{
-                border: rbacDensity === "comfortable" ? "1px solid #8ab4ff" : "1px solid #2a355f",
-                background: rbacDensity === "comfortable" ? "#1b2854" : "#111936",
-                color: "#e6ecff"
-              }}
-            >
-              Comfortable
-            </button>
-            <button
-              type="button"
-              onClick={() => updateRbacDensity("compact")}
-              style={{
-                border: rbacDensity === "compact" ? "1px solid #8ab4ff" : "1px solid #2a355f",
-                background: rbacDensity === "compact" ? "#1b2854" : "#111936",
-                color: "#e6ecff"
-              }}
-            >
-              Compact
-            </button>
-          </div>
-
-          {!selectedClientId ? (
-            <p>Select a client to manage users and roles.</p>
-          ) : (
-            <>
-              <form onSubmit={createOrgUser} style={{ display: "grid", gap: 8, marginBottom: 12 }}>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input
-                    type="email"
-                    placeholder="User email"
-                    value={newUserEmail}
-                    onChange={(event) => setNewUserEmail(event.target.value)}
-                    required
-                  />
-                  <input
-                    placeholder="Display name"
-                    value={newUserDisplayName}
-                    onChange={(event) => setNewUserDisplayName(event.target.value)}
-                    minLength={2}
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="Temporary password"
-                    value={newUserPassword}
-                    onChange={(event) => setNewUserPassword(event.target.value)}
-                    minLength={8}
-                    required
-                  />
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {rolesCatalog.map((role) => (
-                    <label key={`new-role-${role.code}`}>
-                      <input
-                        type="checkbox"
-                        checked={newUserRoles.includes(role.code)}
-                        onChange={() => setNewUserRoles((prev) => toggleRoleSelection(prev, role.code))}
-                      />{" "}
-                      {decodeHtmlEntities(role.code)}
-                    </label>
-                  ))}
-                </div>
-                <div>
-                  <button type="submit" disabled={isCreatingUser || !selectedClientId}>
-                    {isCreatingUser ? "Creating..." : "Create User in Client"}
-                  </button>
-                </div>
-              </form>
-
-              {orgUsers.length === 0 ? (
-                <p>No users found for this client (or you do not have org admin access).</p>
-              ) : (
-                <>
-                  <p style={{ marginBottom: 8 }}>
-                    Tip: click <strong>Archive in Client</strong> to remove all org roles (archive-only). To restore,
-                    re-select at least one role and click <strong>Save Roles</strong>.
-                  </p>
-                  <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: rbacTableSpacing }}>
-                    <thead>
-                      <tr>
-                        <th align="left" style={{ padding: "0 10px 6px" }}>Name</th>
-                        <th align="left" style={{ padding: "0 10px 6px" }}>Email</th>
-                        <th align="left" style={{ padding: "0 10px 6px" }}>User Active</th>
-                        <th align="left" style={{ padding: "0 10px 6px" }}>Org Access</th>
-                        <th align="left" style={{ padding: "0 10px 6px" }}>Roles</th>
-                        <th align="left" style={{ padding: "0 10px 6px" }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orgUsers.map((user, index) => {
-                        const key = String(user.id);
-                        const editRoles = roleEditsByUserId[key] ?? user.roles;
-                        const saving = !!savingRolesByUserId[key];
-                        const rowBg = index % 2 === 0 ? "#0f1834" : "#121e40";
-                        return (
-                          <tr
-                            key={`org-user-${user.id}`}
-                            style={{
-                              background: rowBg,
-                              boxShadow: "inset 0 0 0 1px #2a355f",
-                              opacity: user.has_active_org_roles ? 1 : 0.85
-                            }}
-                          >
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top", fontWeight: 600 }}>{decodeHtmlEntities(user.display_name)}</td>
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top", color: "#c8d4ff" }}>{decodeHtmlEntities(user.email)}</td>
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top" }}>{user.is_active ? "Yes" : "No"}</td>
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top" }}>
-                              <span
-                                style={{
-                                  display: "inline-block",
-                                  padding: "2px 8px",
-                                  borderRadius: 999,
-                                  background: user.has_active_org_roles ? "#59d97f" : "#ffb86b",
-                                  color: "#111"
-                                }}
-                              >
-                                {user.has_active_org_roles ? "Active" : "Archived"}
-                              </span>
-                            </td>
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top" }}>
-                              <div style={{ display: "grid", gridTemplateColumns: rbacRoleGridCols, gap: rbacRoleGap }}>
-                                {rolesCatalog.map((role) => (
-                                  <label
-                                    key={`user-${user.id}-${role.code}`}
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: 6,
-                                      border: "1px solid #2a355f",
-                                      borderRadius: 8,
-                                      padding: isRbacCompact ? "2px 6px" : "4px 8px"
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={editRoles.includes(role.code)}
-                                      onChange={() =>
-                                        setRoleEditsByUserId((prev) => ({
-                                          ...prev,
-                                          [key]: toggleRoleSelection(prev[key] ?? user.roles, role.code)
-                                        }))
-                                      }
-                                    />{" "}
-                                    {decodeHtmlEntities(role.code)}
-                                  </label>
-                                ))}
-                              </div>
-                            </td>
-                            <td style={{ padding: rbacCellPadding, verticalAlign: "top" }}>
-                              <div style={{ display: "grid", gap: 8 }}>
-                                <button onClick={() => saveUserRoles(user.id)} disabled={saving || tokenMissing}>
-                                  {saving ? "Saving..." : "Save Roles"}
-                                </button>
-                                <button
-                                  onClick={() => archiveUserInClient(user.id)}
-                                  disabled={saving || tokenMissing || !user.has_active_org_roles}
-                                >
-                                  Archive in Client
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </>
-              )}
-            </>
-          )}
-          </section>
-        </>
+            </TabsContent>
+          </Tabs>
+        </PageSection>
       ) : null}
-    </main>
+    </PageShell>
   );
 }

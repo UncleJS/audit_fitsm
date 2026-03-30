@@ -21,22 +21,13 @@ export default function DateOnlyInput({
   ariaLabel
 }: DateOnlyInputProps) {
   return (
-    <div style={{ position: "relative", minWidth: 170 }}>
+    <div className="relative min-w-40">
       {name ? <input type="hidden" name={name} value={value} /> : null}
       <div
         aria-hidden="true"
-        style={{
-          position: "absolute",
-          inset: 0,
-          pointerEvents: "none",
-          display: "flex",
-          alignItems: "center",
-          paddingInline: 10,
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          color: value ? "inherit" : "#9aa6c6"
-        }}
+        className="pointer-events-none absolute inset-0 flex items-center rounded-xl px-3 font-mono text-sm text-slate-100"
       >
-        {value || "yyyy-mm-dd"}
+        <span className={value ? "text-slate-100" : "text-slate-500"}>{value || "yyyy-mm-dd"}</span>
       </div>
       <input
         id={id}
@@ -47,14 +38,7 @@ export default function DateOnlyInput({
         disabled={disabled}
         required={required}
         aria-label={ariaLabel}
-        style={{
-          position: "relative",
-          zIndex: 1,
-          background: "transparent",
-          color: "transparent",
-          caretColor: "transparent",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
-        }}
+        className="relative z-10 bg-transparent font-mono text-transparent caret-transparent"
       />
     </div>
   );

@@ -1,8 +1,17 @@
 // @ts-nocheck
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
+import { ArrowLeft, Download, FileText, History, Layers3, Save, Target } from "lucide-react";
+import ProcessPanel from "../../components/audit-workspace/process-panel";
+import { ProcessMobileNav, ProcessSidebarNav } from "../../components/audit-workspace/process-nav";
+import PageShell from "../../components/layout/page-shell";
+import PageSection from "../../components/layout/page-section";
+import { Badge, statusVariant } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent } from "../../components/ui/card";
 import { formatDateOnly, formatLocalTimestamp } from "../../lib/date-format";
 import { decodeHtmlEntities } from "../../lib/text-format";
 
@@ -33,7 +42,9 @@ export default function AuditWorkspacePage() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [downloadingExportId, setDownloadingExportId] = useState<number | null>(null);
   const [downloadingCsvKind, setDownloadingCsvKind] = useState<string | null>(null);
-  const [workspaceDensity, setWorkspaceDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [openProcessByCode, setOpenProcessByCode] = useState<Record<string, boolean>>({});
+  const [panelDensityByProcess, setPanelDensityByProcess] = useState<Record<string, "comfortable" | "compact">>({});
+  const [activeProcessCode, setActiveProcessCode] = useState("");
   const [message, setMessage] = useState("");
 
   const tokenMissing = useMemo(() => !authToken, [authToken]);
@@ -69,6 +80,7 @@ export default function AuditWorkspacePage() {
     setStatusEdit(data.audit?.status ?? "draft");
 
     const nextScopeEdits: Record<string, any> = {};
+    const nextOpenPanels: Record<string, boolean> = {};
     for (const group of data.groupedProcesses ?? []) {
       nextScopeEdits[String(group.processCode)] = {
         processCode: group.processCode,
@@ -76,8 +88,10 @@ export default function AuditWorkspacePage() {
         customGoalLevel: group.customGoalLevel != null ? String(group.customGoalLevel) : "",
         scopeCode: group.scopeCode ?? "IN_SCOPE"
       };
+      nextOpenPanels[String(group.processCode)] = true;
     }
     setScopeEdits(nextScopeEdits);
+    setOpenProcessByCode((prev) => ({ ...nextOpenPanels, ...prev }));
 
     const nextEdits: Record<string, any> = {};
     for (const group of data.groupedProcesses ?? []) {
@@ -117,10 +131,17 @@ export default function AuditWorkspacePage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const storedToken = window.sessionStorage.getItem("audit_fitsm_token") || "";
-    const storedDensity = window.sessionStorage.getItem("audit_fitsm_workspace_density");
+    const storedDensity = window.sessionStorage.getItem("audit_fitsm_workspace_density_by_process");
     setAuthToken(storedToken || demoToken);
-    if (storedDensity === "compact" || storedDensity === "comfortable") {
-      setWorkspaceDensity(storedDensity);
+    if (storedDensity) {
+      try {
+        const parsed = JSON.parse(storedDensity);
+        if (parsed && typeof parsed === "object") {
+          setPanelDensityByProcess(parsed);
+        }
+      } catch {
+        // ignore invalid persisted state
+      }
     }
     setMounted(true);
   }, []);
@@ -138,38 +159,60 @@ export default function AuditWorkspacePage() {
     }
   }, [auditId, authToken]);
 
-  const updateWorkspaceDensity = (density: "comfortable" | "compact") => {
-    setWorkspaceDensity(density);
+  useEffect(() => {
+    if (!workspace?.groupedProcesses?.length || typeof window === "undefined") return;
+    const sections = Array.from(document.querySelectorAll<HTMLElement>("[data-process-panel]"));
+    if (!sections.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible?.target instanceof HTMLElement) {
+          setActiveProcessCode(visible.target.dataset.processCode ?? "");
+        }
+      },
+      { rootMargin: "-20% 0px -60% 0px", threshold: [0.2, 0.4, 0.7] }
+    );
+
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, [workspace?.groupedProcesses?.length]);
+
+  const updatePanelDensity = (processCode: string, density: "comfortable" | "compact") => {
+    setPanelDensityByProcess((prev) => {
+      const next = { ...prev, [processCode]: density };
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("audit_fitsm_workspace_density_by_process", JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  const scrollToProcess = (processCode: string) => {
     if (typeof window !== "undefined") {
-      window.sessionStorage.setItem("audit_fitsm_workspace_density", density);
+      document.getElementById(`process-${String(processCode).toLowerCase()}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
-  const isWorkspaceCompact = workspaceDensity === "compact";
-  const reqTableSpacing = isWorkspaceCompact ? "0 4px" : "0 8px";
-  const reqCellPadding = isWorkspaceCompact ? 6 : 10;
-  const reqTextareaRows = isWorkspaceCompact ? 3 : 4;
-  const reqHeaderPadding = isWorkspaceCompact ? "0 8px 4px" : "0 10px 6px";
-
   if (!mounted) {
     return (
-      <main className="container grid" suppressHydrationWarning>
-        <section className="card">
-          <h1>Audit Workspace</h1>
-          <p>Loading audit…</p>
-        </section>
-      </main>
+      <PageShell>
+        <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit data." >
+          <p className="text-sm text-slate-400">Preparing requirements, exports, and activity…</p>
+        </PageSection>
+      </PageShell>
     );
   }
 
   if (tokenMissing) {
     return (
-      <main className="container grid" suppressHydrationWarning>
-        <section className="card">
-          <h1>Audit Workspace</h1>
-          <p>Redirecting to login…</p>
-        </section>
-      </main>
+      <PageShell>
+        <PageSection title="Audit workspace" eyebrow="Audit" description="Redirecting to login." >
+          <p className="text-sm text-slate-400">A valid session is required for audit scoring and exports.</p>
+        </PageSection>
+      </PageShell>
     );
   }
 
@@ -607,548 +650,246 @@ export default function AuditWorkspacePage() {
 
   if (!workspace) {
     return (
-      <main className="container grid">
-        <section className="card">
-          <nav aria-label="Breadcrumb" style={{ marginBottom: 8 }}>
-            <a href="/clients">Clients</a> <span aria-hidden="true">/</span> <span>Audit {auditId || "…"}</span>
-          </nav>
-          <h1>Audit Workspace</h1>
-          <p>{message || "Loading..."}</p>
-        </section>
-      </main>
+      <PageShell>
+        <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit context and requirement groups.">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+            <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Back to clients</Link>
+            <span aria-hidden="true">/</span>
+            <span>Audit {auditId || "…"}</span>
+          </div>
+          <p className="text-sm text-slate-300">{message || "Loading audit…"}</p>
+        </PageSection>
+      </PageShell>
     );
   }
 
+  const groupedProcesses = [...(workspace.groupedProcesses ?? [])].sort((left: any, right: any) => {
+    const parse = (code: string) => {
+      const match = String(code).match(/^([A-Z]+)(\d+)?/i);
+      const prefix = String(match?.[1] ?? code).toUpperCase();
+      const index = prefix === "GR" ? 0 : prefix === "PR" ? 1 : 2;
+      const number = Number(match?.[2] ?? Number.MAX_SAFE_INTEGER);
+      return { index, prefix, number, raw: String(code) };
+    };
+
+    const a = parse(left.processCode);
+    const b = parse(right.processCode);
+    return a.index - b.index || a.number - b.number || a.raw.localeCompare(b.raw);
+  });
+
+  const auditSummary = [
+    { label: "Client", value: decodeHtmlEntities(workspace.audit.client_name) },
+    { label: "Audit date", value: formatDateOnly(workspace.audit.audit_date) },
+    { label: "Processes", value: groupedProcesses.length },
+    { label: "Exports", value: pdfExports.length }
+  ];
+
   return (
-    <main className="container grid">
-      <section className="card">
-        <nav aria-label="Breadcrumb" style={{ marginBottom: 8 }}>
-          <a href="/clients">Clients</a> <span aria-hidden="true">/</span> <span>{decodeHtmlEntities(workspace.audit.name)}</span>
-        </nav>
-        <h1>{decodeHtmlEntities(workspace.audit.name)}</h1>
-        <p>
-          Client: <strong>{decodeHtmlEntities(workspace.audit.client_name)}</strong> | Audit date: {formatDateOnly(workspace.audit.audit_date)} |
-          Status: {auditStatus}
-        </p>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <label>
-            Audit status{" "}
-            <select
-              value={statusEdit}
-              onChange={(event) => setStatusEdit(event.target.value)}
-              disabled={!canManageStatus}
-            >
-              <option value={auditStatus}>{auditStatus}</option>
-              {allowedStatusTransitions.map((status: string) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button onClick={saveStatus} disabled={!canManageStatus || statusEdit === auditStatus}>
-            Save Status
-          </button>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}>
-            Save Scope/Targets
-          </button>
-          <button onClick={() => saveAssessments()} disabled={!canEdit}>
-            Save Assessment Updates
-          </button>
-          <button onClick={saveAll} disabled={!canLeadEdit}>
-            Save All
-          </button>
-          <button onClick={generatePdfExport} disabled={!canExport || isGeneratingPdf}>
-            {isGeneratingPdf ? "Generating PDF..." : "Generate PDF Export"}
-          </button>
-          <button
-            onClick={() => downloadAuditCsv("all")}
-            disabled={!canExport || downloadingCsvKind !== null}
-          >
-            {downloadingCsvKind === "all" ? "Downloading..." : "CSV: All Results"}
-          </button>
-          <button
-            onClick={() => downloadAuditCsv("certification")}
-            disabled={!canExport || downloadingCsvKind !== null}
-          >
-            {downloadingCsvKind === "certification" ? "Downloading..." : "CSV: Certification"}
-          </button>
-          <button
-            onClick={() => downloadAuditCsv("gaps")}
-            disabled={!canExport || downloadingCsvKind !== null}
-          >
-            {downloadingCsvKind === "gaps" ? "Downloading..." : "CSV: Gaps"}
-          </button>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
-          <span style={{ color: "#c8d4ff" }}>Workspace density:</span>
-          <button
-            type="button"
-            onClick={() => updateWorkspaceDensity("comfortable")}
-            style={{
-              border: workspaceDensity === "comfortable" ? "1px solid #8ab4ff" : "1px solid #2a355f",
-              background: workspaceDensity === "comfortable" ? "#1b2854" : "#111936",
-              color: "#e6ecff"
-            }}
-          >
-            Comfortable
-          </button>
-          <button
-            type="button"
-            onClick={() => updateWorkspaceDensity("compact")}
-            style={{
-              border: workspaceDensity === "compact" ? "1px solid #8ab4ff" : "1px solid #2a355f",
-              background: workspaceDensity === "compact" ? "#1b2854" : "#111936",
-              color: "#e6ecff"
-            }}
-          >
-            Compact
-          </button>
-        </div>
-        <p style={{ color: auditStatus === "draft" ? "#86efac" : "#ffcc80" }}>
-          Scope and cert goals are {auditStatus === "draft" ? "editable" : "locked"} while status is <strong>{auditStatus || "unknown"}</strong>.
-        </p>
-        {isLockedForNonLead ? (
-          <p style={{ color: "#ffcc80" }}>
-            This audit is completed; editing is locked for non-lead roles.
-          </p>
-        ) : null}
-        {message ? <p>{message}</p> : null}
-      </section>
+    <>
+      <PageShell className="pb-28 lg:pb-6">
+        <PageSection
+          title={decodeHtmlEntities(workspace.audit.name)}
+          eyebrow="Audit workspace"
+          description="The audit is now separated into overview, process scoring, exports, activity, details, and conclusion so each task area stays focused."
+        >
+          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+            <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Clients</Link>
+            <span aria-hidden="true">/</span>
+            <span>{decodeHtmlEntities(workspace.audit.name)}</span>
+          </div>
 
-      <section className="card">
-        <h2>Stored PDF Exports</h2>
-        {pdfExports.length === 0 ? (
-          <p>No stored PDF exports yet.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th align="left">Generated</th>
-                <th align="left">File</th>
-                <th align="left">Size</th>
-                <th align="left">Current</th>
-                <th align="left">Download</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pdfExports.map((item: any) => (
-                <tr key={item.id}>
-                  <td>{formatLocalTimestamp(item.generated_at)}</td>
-                  <td>{item.file_name}</td>
-                  <td>{formatBytes(item.file_size_bytes)}</td>
-                  <td>{item.is_current ? "Yes" : "No"}</td>
-                  <td>
-                    <button
-                      disabled={!canExport || downloadingExportId === Number(item.id)}
-                      onClick={() => downloadPdfExport(Number(item.id), String(item.file_name))}
-                    >
-                      {downloadingExportId === Number(item.id) ? "Downloading..." : "Download"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section className="card">
-        <h2>Audit Activity</h2>
-        {(workspace.auditEvents ?? []).length === 0 ? (
-          <p>No audit-level activity recorded yet.</p>
-        ) : (
-          <ul style={{ paddingLeft: 18 }}>
-            {(workspace.auditEvents ?? []).map((event: any) => (
-              <li key={`audit-event-${event.id}`} style={{ marginBottom: 8 }}>
-                <strong>{auditEventLabel(String(event.event_type))}</strong>
-                {auditEventSummary(event) ? ` — ${decodeHtmlEntities(auditEventSummary(event))}` : ""} <em>({formatLocalTimestamp(event.created_at)})</em>
-                {event.actor_name ? ` by ${decodeHtmlEntities(event.actor_name)}` : ""}
-              </li>
+          <div className="grid gap-4 xl:grid-cols-4">
+            {auditSummary.map((item) => (
+              <Card key={item.label} className="bg-slate-950/45">
+                <CardContent className="p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                  <p className="mt-3 text-lg font-semibold text-slate-50">{item.value}</p>
+                </CardContent>
+              </Card>
             ))}
-          </ul>
-        )}
-      </section>
+          </div>
 
-      {(workspace.groupedProcesses ?? []).map((group: any) => (
-        <section className="card" key={group.processCode}>
-          {(() => {
-            const scopeEdit = scopeEdits[String(group.processCode)] ?? {
-              processCode: group.processCode,
-              certGoalLevel: group.certGoalLevel != null ? String(group.certGoalLevel) : "2",
-              customGoalLevel: group.customGoalLevel != null ? String(group.customGoalLevel) : "",
-              scopeCode: group.scopeCode ?? "IN_SCOPE"
-            };
-
-            return (
-              <>
-                <h2>
-                   {group.processCode} - {decodeHtmlEntities(group.processName)} ({decodeHtmlEntities(group.processAbbreviation)})
-                 </h2>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: isWorkspaceCompact ? 8 : 12,
-                    flexWrap: "wrap",
-                    marginBottom: isWorkspaceCompact ? 8 : 12
-                  }}
-                >
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      border: "1px solid #2a355f",
-                      borderRadius: 8,
-                      padding: isWorkspaceCompact ? "3px 6px" : "5px 8px"
-                    }}
-                  >
-                    Scope{" "}
-                    <select
-                      value={scopeEdit.scopeCode}
-                      disabled={!canManageScopeTargets}
-                      onChange={(event) =>
-                        setScopeEdits((prev) => ({
-                          ...prev,
-                          [String(group.processCode)]: {
-                            ...scopeEdit,
-                            scopeCode: event.target.value
-                          }
-                        }))
-                      }
-                    >
-                      {(workspace.dropdowns?.scopeOptions ?? []).map((scope: any) => (
-                        <option key={scope.code} value={scope.code}>
-                          {decodeHtmlEntities(scope.label)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      border: "1px solid #2a355f",
-                      borderRadius: 8,
-                      padding: isWorkspaceCompact ? "3px 6px" : "5px 8px"
-                    }}
-                  >
-                    Cert goal{" "}
-                    <select
-                      value={scopeEdit.certGoalLevel}
-                      disabled={!canManageScopeTargets}
-                      onChange={(event) =>
-                        setScopeEdits((prev) => ({
-                          ...prev,
-                          [String(group.processCode)]: {
-                            ...scopeEdit,
-                            certGoalLevel: event.target.value
-                          }
-                        }))
-                      }
-                    >
-                      {(workspace.dropdowns?.targetLevels ?? []).map((level: any) => (
-                        <option key={`cert-${group.processCode}-${level.level}`} value={String(level.level)}>
-                           {level.level} - {decodeHtmlEntities(level.label)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      border: "1px solid #2a355f",
-                      borderRadius: 8,
-                      padding: isWorkspaceCompact ? "3px 6px" : "5px 8px"
-                    }}
-                  >
-                    Custom goal{" "}
-                    <select
-                      value={scopeEdit.customGoalLevel}
-                      disabled={!canManageScopeTargets}
-                      onChange={(event) =>
-                        setScopeEdits((prev) => ({
-                          ...prev,
-                          [String(group.processCode)]: {
-                            ...scopeEdit,
-                            customGoalLevel: event.target.value
-                          }
-                        }))
-                      }
-                    >
-                      <option value="">(none)</option>
-                      {(workspace.dropdowns?.targetLevels ?? []).map((level: any) => (
-                        <option key={`custom-${group.processCode}-${level.level}`} value={String(level.level)}>
-                           {level.level} - {decodeHtmlEntities(level.label)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,320px)_1fr]">
+            <Card className="bg-slate-950/45">
+              <CardContent className="space-y-4 p-5">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-50">Audit status</p>
+                  <Badge variant={statusVariant(auditStatus)}>{auditStatus.replace("_", " ")}</Badge>
                 </div>
-              </>
-            );
-          })()}
-          <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: reqTableSpacing, tableLayout: "fixed" }}>
-            <thead>
-              <tr>
-                <th align="left" style={{ width: "56%", padding: reqHeaderPadding }}>Requirement</th>
-                <th align="left" style={{ width: "8%", padding: reqHeaderPadding }}>Score</th>
-                <th align="left" style={{ width: "14%", padding: reqHeaderPadding }}>Comment</th>
-                <th align="left" style={{ width: "14%", padding: reqHeaderPadding }}>Evidence</th>
-                <th align="left" style={{ width: "8%", padding: reqHeaderPadding }}>Notes / History</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(group.requirements ?? []).map((req: any, reqIndex: number) => {
-                const assessmentKey = String(req.assessmentId);
-                const edit = edits[String(req.assessmentId)] ?? {
-                  requirementCode: req.requirementCode,
-                  scoreLabel: "Select …",
-                  commentText: "",
-                  evidenceText: ""
-                };
-                const rowBg = reqIndex % 2 === 0 ? "#0f1834" : "#121e40";
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium text-slate-300">Transition</label>
+                  <select value={statusEdit} onChange={(event) => setStatusEdit(event.target.value)} disabled={!canManageStatus}>
+                    <option value={auditStatus}>{auditStatus}</option>
+                    {allowedStatusTransitions.map((status: string) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+                <Button onClick={saveStatus} disabled={!canManageStatus || statusEdit === auditStatus}><Save className="size-4" /> Save status</Button>
+                <p className={`text-sm ${auditStatus === "draft" ? "text-emerald-200" : "text-amber-100"}`}>
+                  Scope and certification goals are {auditStatus === "draft" ? "editable" : "locked"} while status is <strong>{auditStatus || "unknown"}</strong>.
+                </p>
+                {isLockedForNonLead ? <p className="text-sm text-amber-100">This audit is completed; editing is locked for non-lead roles.</p> : null}
+              </CardContent>
+            </Card>
 
-                const isOpen = !!openHistoryByAssessment[assessmentKey];
-                const history = historyByAssessment[assessmentKey];
-                const historyLoading = !!loadingHistoryByAssessment[assessmentKey];
-                const noteDraft = noteDraftByAssessment[assessmentKey] ?? "";
+            <Card className="bg-slate-950/45">
+              <CardContent className="space-y-4 p-5">
+                <p className="text-sm font-semibold text-slate-50">Save and export actions</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
+                  <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
+                  <Button onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" onClick={generatePdfExport} disabled={!canExport || isGeneratingPdf}><FileText className="size-4" /> {isGeneratingPdf ? "Generating PDF…" : "Generate PDF export"}</Button>
+                  <Button variant="secondary" onClick={() => downloadAuditCsv("all")} disabled={!canExport || downloadingCsvKind !== null}><Download className="size-4" /> {downloadingCsvKind === "all" ? "Downloading…" : "CSV: all"}</Button>
+                  <Button variant="secondary" onClick={() => downloadAuditCsv("certification")} disabled={!canExport || downloadingCsvKind !== null}>{downloadingCsvKind === "certification" ? "Downloading…" : "CSV: certification"}</Button>
+                  <Button variant="secondary" onClick={() => downloadAuditCsv("gaps")} disabled={!canExport || downloadingCsvKind !== null}>{downloadingCsvKind === "gaps" ? "Downloading…" : "CSV: gaps"}</Button>
+                </div>
+                {message ? <div className="rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">{message}</div> : null}
+              </CardContent>
+            </Card>
+          </div>
+        </PageSection>
 
-                return (
-                  <Fragment key={req.assessmentId}>
-                    <tr style={{ background: rowBg, boxShadow: "inset 0 0 0 1px #2a355f" }}>
-                      <td style={{ padding: reqCellPadding, verticalAlign: "top" }}>
-                        <div>
-                          <strong>{req.requirementCode}</strong>
-                        </div>
-                        <div style={{ marginTop: isWorkspaceCompact ? 2 : 4, lineHeight: isWorkspaceCompact ? 1.35 : 1.45 }}>
-                          {decodeHtmlEntities(req.requirementText)}
-                        </div>
-                      </td>
-                      <td style={{ padding: reqCellPadding, verticalAlign: "top" }}>
-                        <select
-                          style={{ width: "100%", minWidth: 92 }}
-                          value={edit.scoreLabel}
-                          disabled={!canEdit}
-                          onChange={(event) =>
-                            setEdits((prev) => ({
-                              ...prev,
-                              [assessmentKey]: {
-                                ...edit,
-                                scoreLabel: event.target.value
-                              }
-                            }))
-                          }
-                        >
-                          {(workspace.dropdowns?.scoreOptions ?? []).map((score: any) => (
-                            <option key={score.label} value={score.label}>
-                              {decodeHtmlEntities(score.label)}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={{ padding: reqCellPadding, verticalAlign: "top" }}>
-                        <textarea
-                          rows={reqTextareaRows}
-                          style={{ width: "100%" }}
-                          value={edit.commentText}
-                          disabled={!canEdit}
-                          onChange={(event) =>
-                            setEdits((prev) => ({
-                              ...prev,
-                              [assessmentKey]: {
-                                ...edit,
-                                commentText: event.target.value
-                              }
-                            }))
-                          }
-                        />
-                      </td>
-                      <td style={{ padding: reqCellPadding, verticalAlign: "top" }}>
-                        <textarea
-                          rows={reqTextareaRows}
-                          style={{ width: "100%" }}
-                          value={edit.evidenceText}
-                          disabled={!canEdit}
-                          onChange={(event) =>
-                            setEdits((prev) => ({
-                              ...prev,
-                              [assessmentKey]: {
-                                ...edit,
-                                evidenceText: event.target.value
-                              }
-                            }))
-                          }
-                        />
-                      </td>
-                      <td style={{ padding: reqCellPadding, verticalAlign: "top" }}>
-                        <button style={{ width: "100%" }} onClick={() => toggleAssessmentHistory(req.assessmentId)}>
-                          {isOpen ? "Hide" : "Open"}
-                        </button>
-                      </td>
-                    </tr>
-                    {isOpen ? (
+        <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <ProcessSidebarNav processes={groupedProcesses} activeProcessCode={activeProcessCode} onJump={scrollToProcess} />
+
+          <div className="grid gap-6">
+            <PageSection
+              title="1. Scope & requirements by process"
+              eyebrow="Execution"
+              description="Each process panel now isolates scope settings, density controls, and requirement scoring to keep work focused."
+            >
+              <div className="grid gap-4">
+                {groupedProcesses.map((group: any) => (
+                  <ProcessPanel
+                    key={group.processCode}
+                    group={group}
+                    workspace={workspace}
+                    processUi={{ openProcessByCode, setOpenProcessByCode, panelDensityByProcess }}
+                    scopeState={{ scopeEdits, setScopeEdits }}
+                    assessmentState={{
+                      edits,
+                      setEdits,
+                      openHistoryByAssessment,
+                      historyByAssessment,
+                      loadingHistoryByAssessment,
+                      noteDraftByAssessment,
+                      setNoteDraftByAssessment
+                    }}
+                    permissions={{ canManageScopeTargets, canEdit }}
+                    actions={{ updatePanelDensity, toggleAssessmentHistory, addAssessmentNote }}
+                  />
+                ))}
+              </div>
+            </PageSection>
+
+            <PageSection title="2. Exports" eyebrow="Outputs" description="Generate and retrieve stored exports without leaving the audit context.">
+              {pdfExports.length === 0 ? (
+                <p className="text-sm text-slate-400">No stored PDF exports yet.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
+                  <table className="data-table min-w-[760px]">
+                    <thead>
                       <tr>
-                        <td colSpan={5} style={{ padding: 0 }}>
-                          <div
-                            className="grid"
-                            style={{
-                              gridTemplateColumns: `repeat(auto-fit, minmax(${isWorkspaceCompact ? 240 : 280}px, 1fr))`,
-                              background: "#0d1630",
-                              border: "1px solid #2a355f",
-                              borderRadius: 8,
-                              padding: isWorkspaceCompact ? 8 : 12
-                            }}
-                          >
-                            <div>
-                              <h4>Notes</h4>
-                              <textarea
-                                rows={reqTextareaRows}
-                                style={{ width: "100%" }}
-                                value={noteDraft}
-                                disabled={!canEdit}
-                                onChange={(event) =>
-                                  setNoteDraftByAssessment((prev) => ({
-                                    ...prev,
-                                    [assessmentKey]: event.target.value
-                                  }))
-                                }
-                                placeholder="Add note for this requirement"
-                              />
-                              <div style={{ marginTop: 8 }}>
-                                <button onClick={() => addAssessmentNote(req.assessmentId)} disabled={!canEdit}>
-                                  Add Note
-                                </button>
-                              </div>
-                              <ul style={{ paddingLeft: 18 }}>
-                                {(history?.notes ?? []).map((note: any) => (
-                                  <li key={`n-${note.id}`}>
-                                    {decodeHtmlEntities(note.note_text)} <em>({formatLocalTimestamp(note.created_at)})</em>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div>
-                              <h4>Change History</h4>
-                              {historyLoading ? <p>Loading history…</p> : null}
-                              <ul style={{ paddingLeft: 18 }}>
-                                {(history?.events ?? []).map((evt: any) => (
-                                  <li key={`e-${evt.id}`}>
-                                    <strong>{decodeHtmlEntities(evt.event_type)}</strong> <em>({formatLocalTimestamp(evt.created_at)})</em>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        </td>
+                        <th>Generated</th>
+                        <th>File</th>
+                        <th>Size</th>
+                        <th>Current</th>
+                        <th>Download</th>
                       </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      ))}
+                    </thead>
+                    <tbody>
+                      {pdfExports.map((item: any) => (
+                        <tr key={item.id}>
+                          <td>{formatLocalTimestamp(item.generated_at)}</td>
+                          <td>{item.file_name}</td>
+                          <td>{formatBytes(item.file_size_bytes)}</td>
+                          <td>{item.is_current ? "Yes" : "No"}</td>
+                          <td>
+                            <Button size="sm" variant="secondary" disabled={!canExport || downloadingExportId === Number(item.id)} onClick={() => downloadPdfExport(Number(item.id), String(item.file_name))}>
+                              {downloadingExportId === Number(item.id) ? "Downloading…" : "Download"}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </PageSection>
 
-      <section className="card">
-        <h2>Audit Details</h2>
-        <button onClick={() => saveAuditDetails()} disabled={!canEdit}>
-          Save Audit Details
-        </button>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th align="left">Field</th>
-              <th align="left">Response</th>
-              <th align="left">Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(workspace.details ?? []).map((detail: any) => {
-              const edit = detailEdits[String(detail.field_key)] ?? {
-                fieldKey: detail.field_key,
-                responseText: "",
-                noteText: ""
-              };
+            <PageSection title="3. Audit activity" eyebrow="Timeline" description="Review status changes, saved updates, and archived or restored assessments in local time.">
+              {(workspace.auditEvents ?? []).length === 0 ? (
+                <p className="text-sm text-slate-400">No audit-level activity recorded yet.</p>
+              ) : (
+                <div className="grid gap-3">
+                  {(workspace.auditEvents ?? []).map((event: any) => (
+                    <Card key={`audit-event-${event.id}`} className="bg-slate-950/45">
+                      <CardContent className="flex flex-col gap-2 p-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 text-slate-50"><History className="size-4 text-sky-300" /> <strong>{auditEventLabel(String(event.event_type))}</strong></div>
+                          <p className="text-sm text-slate-300">{auditEventSummary(event) ? decodeHtmlEntities(auditEventSummary(event)) : "No summary available."}</p>
+                          {event.actor_name ? <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Actor: {decodeHtmlEntities(event.actor_name)}</p> : null}
+                        </div>
+                        <div className="text-sm text-slate-400">{formatLocalTimestamp(event.created_at)}</div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </PageSection>
 
-              return (
-                <tr key={detail.field_key}>
-                  <td>
-                    <div>
-                       <strong>{decodeHtmlEntities(detail.label)}</strong>
-                     </div>
-                     {detail.guidance_text ? (
-                       <div style={{ opacity: 0.8, fontSize: "0.9rem" }}>{decodeHtmlEntities(detail.guidance_text)}</div>
-                     ) : null}
-                  </td>
-                  <td>
-                    <textarea
-                      rows={3}
-                      style={{ width: "100%" }}
-                      value={edit.responseText}
-                      disabled={!canEdit}
-                      onChange={(event) =>
-                        setDetailEdits((prev) => ({
-                          ...prev,
-                          [String(detail.field_key)]: {
-                            ...edit,
-                            responseText: event.target.value
-                          }
-                        }))
-                      }
-                    />
-                  </td>
-                  <td>
-                    <textarea
-                      rows={3}
-                      style={{ width: "100%" }}
-                      value={edit.noteText}
-                      disabled={!canEdit}
-                      onChange={(event) =>
-                        setDetailEdits((prev) => ({
-                          ...prev,
-                          [String(detail.field_key)]: {
-                            ...edit,
-                            noteText: event.target.value
-                          }
-                        }))
-                      }
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </section>
+            <PageSection title="4. Audit details" eyebrow="Context" description="Capture structured responses and notes that support the process scoring."
+              action={<Button variant="secondary" onClick={() => saveAuditDetails()} disabled={!canEdit}><Save className="size-4" /> Save details</Button>}
+            >
+              <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
+                <table className="data-table min-w-[900px]">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Response</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(workspace.details ?? []).map((detail: any) => {
+                      const edit = detailEdits[String(detail.field_key)] ?? { fieldKey: detail.field_key, responseText: "", noteText: "" };
+                      return (
+                        <tr key={detail.field_key}>
+                          <td>
+                            <div className="font-semibold text-slate-50">{decodeHtmlEntities(detail.label)}</div>
+                            {detail.guidance_text ? <div className="mt-2 text-sm text-slate-400">{decodeHtmlEntities(detail.guidance_text)}</div> : null}
+                          </td>
+                          <td>
+                            <textarea rows={3} value={edit.responseText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, responseText: event.target.value } }))} />
+                          </td>
+                          <td>
+                            <textarea rows={3} value={edit.noteText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, noteText: event.target.value } }))} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </PageSection>
 
-      <section className="card">
-        <h2>Conclusion</h2>
-        <textarea
-          rows={6}
-          style={{ width: "100%" }}
-          value={conclusionEdit}
-          disabled={!canLeadEdit}
-          onChange={(event) => setConclusionEdit(event.target.value)}
-          placeholder="Enter audit conclusion"
-        />
-        <div style={{ marginTop: 8 }}>
-          <button onClick={() => saveConclusion()} disabled={!canLeadEdit}>
-            Save Conclusion
-          </button>
+            <PageSection title="5. Conclusion" eyebrow="Wrap-up" description="Record the overall conclusion separately from detailed notes and requirement evidence."
+              action={<Button onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>}
+            >
+              <textarea rows={8} value={conclusionEdit} disabled={!canLeadEdit} onChange={(event) => setConclusionEdit(event.target.value)} placeholder="Enter audit conclusion" />
+              <div className="text-sm text-slate-400">
+                <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Back to clients and audits</Link>
+              </div>
+            </PageSection>
+          </div>
         </div>
-        <p>
-          <a href="/clients">Back to clients and audits</a>
-        </p>
-      </section>
-    </main>
+      </PageShell>
+
+      <ProcessMobileNav processes={groupedProcesses} activeProcessCode={activeProcessCode} onJump={scrollToProcess} />
+    </>
   );
 }
