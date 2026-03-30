@@ -25,6 +25,8 @@ const openApiDoc = JSON.parse(
 
 const db = getDb();
 const corsAllowedOrigins = new Set(config.cors.allowedOrigins);
+let tokenVersionColumnExistsPromise: Promise<boolean> | null = null;
+const tableExistsPromiseByName = new Map<string, Promise<boolean>>();
 
 const swaggerCsp = [
   "default-src 'self'",
@@ -36,6 +38,44 @@ const swaggerCsp = [
 ].join("; ");
 
 const defaultCsp = "default-src 'self'; frame-ancestors 'none'";
+
+const hasTable = async (tableName: string): Promise<boolean> => {
+  if (!tableExistsPromiseByName.has(tableName)) {
+    tableExistsPromiseByName.set(
+      tableName,
+      db
+        .query<RowDataPacket[]>(
+          `SELECT 1
+           FROM information_schema.TABLES
+           WHERE TABLE_SCHEMA = ?
+             AND TABLE_NAME = ?
+           LIMIT 1`,
+          [config.db.database, tableName]
+        )
+        .then(([rows]) => rows.length > 0)
+        .catch(() => false)
+    );
+  }
+
+  return tableExistsPromiseByName.get(tableName)!;
+};
+
+const hasTokenVersionColumn = async (): Promise<boolean> => {
+  tokenVersionColumnExistsPromise ??= db
+    .query<RowDataPacket[]>(
+      `SELECT 1
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ?
+         AND TABLE_NAME = 'users'
+         AND COLUMN_NAME = 'token_version'
+       LIMIT 1`,
+      [config.db.database]
+    )
+    .then(([rows]) => rows.length > 0)
+    .catch(() => false);
+
+  return tokenVersionColumnExistsPromise;
+};
 
 const buildOrgRoles = (roleRows: RowDataPacket[]): Record<string, string[]> => {
   const orgRoles: Record<string, string[]> = {};
@@ -50,10 +90,20 @@ const buildOrgRoles = (roleRows: RowDataPacket[]): Record<string, string[]> => {
 };
 
 const revokeUserSessions = async (userId: number): Promise<void> => {
+  if (await hasTokenVersionColumn()) {
+    await db.execute(
+      `UPDATE users
+       SET token_version = token_version + 1,
+           updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ? AND archived_at IS NULL`,
+      [userId]
+    );
+    return;
+  }
+
   await db.execute(
     `UPDATE users
-     SET token_version = token_version + 1,
-         updated_at = UTC_TIMESTAMP(3)
+     SET updated_at = UTC_TIMESTAMP(3)
      WHERE id = ? AND archived_at IS NULL`,
     [userId]
   );
@@ -68,9 +118,13 @@ const recordAuditEvent = async (
   entityType: "audit" | "detail" | "conclusion" | "status" | "assessment" = "audit",
   entityKey: string | null = null
 ): Promise<void> => {
+  if (!(await hasTable("audit_events"))) {
+    return;
+  }
+
   await db.execute(
     `INSERT INTO audit_events
-       (audit_id, event_type, entity_type, entity_key, old_value_json, new_value_json, actor_user_id)
+     (audit_id, event_type, entity_type, entity_key, old_value_json, new_value_json, actor_user_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       auditId,
@@ -385,11 +439,17 @@ const app = new Elysia()
       return { auth: null as AuthPayload | null };
     }
 
+    const tokenVersionColumnExists = await hasTokenVersionColumn();
     const [userRows] = await db.query<RowDataPacket[]>(
-      `SELECT id, email, display_name, is_active, token_version
-       FROM users
-       WHERE id = ? AND archived_at IS NULL
-       LIMIT 1`,
+      tokenVersionColumnExists
+        ? `SELECT id, email, display_name, is_active, token_version
+           FROM users
+           WHERE id = ? AND archived_at IS NULL
+           LIMIT 1`
+        : `SELECT id, email, display_name, is_active
+           FROM users
+           WHERE id = ? AND archived_at IS NULL
+           LIMIT 1`,
       [userId]
     );
 
@@ -398,7 +458,11 @@ const app = new Elysia()
     }
 
     const user = userRows[0];
-    if (Number(user.is_active) !== 1 || Number(user.token_version) !== tokenVersion) {
+    if (Number(user.is_active) !== 1) {
+      return { auth: null as AuthPayload | null };
+    }
+
+    if (tokenVersionColumnExists && Number(user.token_version) !== tokenVersion) {
       return { auth: null as AuthPayload | null };
     }
 
@@ -498,11 +562,17 @@ const app = new Elysia()
     }
     const payload = parsed.data;
 
+    const tokenVersionColumnExists = await hasTokenVersionColumn();
     const [users] = await db.query<RowDataPacket[]>(
-      `SELECT id, email, password_hash, display_name, auth_provider, is_active, token_version
-       FROM users
-       WHERE email = ? AND archived_at IS NULL
-       LIMIT 1`,
+      tokenVersionColumnExists
+        ? `SELECT id, email, password_hash, display_name, auth_provider, is_active, token_version
+           FROM users
+           WHERE email = ? AND archived_at IS NULL
+           LIMIT 1`
+        : `SELECT id, email, password_hash, display_name, auth_provider, is_active
+           FROM users
+           WHERE email = ? AND archived_at IS NULL
+           LIMIT 1`,
       [payload.email]
     );
 
@@ -1700,24 +1770,28 @@ const app = new Elysia()
        ORDER BY id ASC`
     );
 
-    const [auditEvents] = await db.query<RowDataPacket[]>(
-      `SELECT
-         ae.id,
-         ae.event_type,
-         ae.entity_type,
-         ae.entity_key,
-         ae.old_value_json,
-         ae.new_value_json,
-         ae.actor_user_id,
-         u.display_name AS actor_name,
-         ae.created_at
-       FROM audit_events ae
-       LEFT JOIN users u ON u.id = ae.actor_user_id
-       WHERE ae.audit_id = ?
-       ORDER BY ae.created_at DESC, ae.id DESC
-       LIMIT 100`,
-      [auditId]
-    );
+    const auditEvents = (await hasTable("audit_events"))
+      ? (
+          await db.query<RowDataPacket[]>(
+            `SELECT
+               ae.id,
+               ae.event_type,
+               ae.entity_type,
+               ae.entity_key,
+               ae.old_value_json,
+               ae.new_value_json,
+               ae.actor_user_id,
+               u.display_name AS actor_name,
+               ae.created_at
+             FROM audit_events ae
+             LEFT JOIN users u ON u.id = ae.actor_user_id
+             WHERE ae.audit_id = ?
+             ORDER BY ae.created_at DESC, ae.id DESC
+             LIMIT 100`,
+            [auditId]
+          )
+        )[0]
+      : [];
 
     return {
       audit: auditRows[0],

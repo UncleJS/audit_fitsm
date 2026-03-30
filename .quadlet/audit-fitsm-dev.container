@@ -22,7 +22,7 @@ Volume=audit-fitsm-dev.volume:/workspace/.dev-volume:Z
 Volume=audit-fitsm-bun-cache.volume:/root/.bun:Z
 Volume=audit-fitsm-exports.volume:/workspace/data/exports:Z
 Volume=audit-fitsm-backups.volume:/workspace/data/backups:Z
-Exec=sleep infinity
+Exec=sh /workspace/scripts/dev-entrypoint.sh
 
 [Install]
 WantedBy=default.target
