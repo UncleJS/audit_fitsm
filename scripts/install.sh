@@ -6,6 +6,7 @@ require_prereqs
 "${PROJECT_ROOT}/scripts/preflight-ports.sh" 1260 1261 1262 1263
 install_quadlets
 install_app_units
+reload_user_systemd
 start_services
 
 printf "Installed and started %s services.\n" "${PROJECT_PREFIX}"

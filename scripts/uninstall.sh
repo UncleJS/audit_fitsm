@@ -10,16 +10,16 @@ if [[ "${1:-}" == "--purge-data" ]]; then
 fi
 
 stop_services
+disable_services
+remove_primary_runtime
+remove_primary_images
+reset_service_state
 remove_app_units
 remove_quadlets
+reload_user_systemd
 
 if [[ "${PURGE_DATA}" == "true" ]]; then
-  podman volume rm -f \
-    "${PROJECT_PREFIX}-dev" \
-    "${PROJECT_PREFIX}-db" \
-    "${PROJECT_PREFIX}-bun-cache" \
-    "${PROJECT_PREFIX}-exports" \
-    "${PROJECT_PREFIX}-backups" || true
+  purge_primary_volumes
   printf "Uninstalled and purged data volumes.\n"
 else
   printf "Uninstalled services. Data volumes preserved.\n"

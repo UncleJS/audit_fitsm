@@ -19,25 +19,11 @@ elif [[ -n "${1:-}" ]]; then
   exit 1
 fi
 
-SERVICES=(
-  "${API_SERVICE}"
-  "${WEB_SERVICE}"
-  "${PHPMYADMIN_SERVICE}"
-  "${DEV_SERVICE}"
-  "${DB_SERVICE}"
-  "${POD_SERVICE}"
-  "${BUILD_SERVICE}"
-)
-
 PODS=(
-  "${PROJECT_PREFIX}"
   "${PROJECT_PREFIX}-ci"
 )
 
 CONTAINERS=(
-  "${PROJECT_PREFIX}-dev"
-  "${PROJECT_PREFIX}-db"
-  "${PROJECT_PREFIX}-phpmyadmin"
   "${PROJECT_PREFIX}-dev-ci"
   "${PROJECT_PREFIX}-db-ci"
 )
@@ -50,25 +36,18 @@ CI_VOLUMES=(
   "${PROJECT_PREFIX}-backups-ci"
 )
 
-PRIMARY_VOLUMES=(
-  "${PROJECT_PREFIX}-dev"
-  "${PROJECT_PREFIX}-db"
-  "${PROJECT_PREFIX}-bun-cache"
-  "${PROJECT_PREFIX}-exports"
-  "${PROJECT_PREFIX}-backups"
-)
-
 printf "Stopping user services (ignore if unavailable)...\n"
-for svc in "${SERVICES[@]}"; do
-  systemctl --user stop "${svc}" >/dev/null 2>&1 || true
-done
+stop_services
 
-printf "Removing pods...\n"
+printf "Removing primary runtime...\n"
+remove_primary_runtime
+
+printf "Removing CI pods...\n"
 for pod in "${PODS[@]}"; do
   podman pod rm -f "${pod}" >/dev/null 2>&1 || true
 done
 
-printf "Removing containers...\n"
+printf "Removing CI containers...\n"
 for ctr in "${CONTAINERS[@]}"; do
   podman rm -f "${ctr}" >/dev/null 2>&1 || true
 done
@@ -78,14 +57,13 @@ for vol in "${CI_VOLUMES[@]}"; do
   podman volume rm -f "${vol}" >/dev/null 2>&1 || true
 done
 
-printf "Removing CI image tag...\n"
+printf "Removing dev image tags...\n"
+remove_primary_images
 podman image rm -f "localhost/${PROJECT_PREFIX}-dev:ci" >/dev/null 2>&1 || true
 
 if [[ "${PURGE_DATA}" == "true" ]]; then
   printf "Purging primary data volumes...\n"
-  for vol in "${PRIMARY_VOLUMES[@]}"; do
-    podman volume rm -f "${vol}" >/dev/null 2>&1 || true
-  done
+  purge_primary_volumes
 fi
 
 printf "Runtime cleanup completed.\n"
