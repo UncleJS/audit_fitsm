@@ -26,10 +26,10 @@ export function Sheet({ open, onOpenChange, trigger, title, description, childre
         >
           <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-6 py-5">
             <div className="space-y-1">
-              <Dialog.Title className="text-lg font-semibold text-slate-50">{title}</Dialog.Title>
-              {description ? <Dialog.Description className="text-sm text-slate-400">{description}</Dialog.Description> : null}
+              <Dialog.Title className="text-lg font-semibold text-foreground">{title}</Dialog.Title>
+              {description ? <Dialog.Description className="text-sm text-foreground">{description}</Dialog.Description> : null}
             </div>
-            <Dialog.Close className="rounded-lg border border-slate-700 p-2 text-slate-300 transition hover:bg-slate-900">
+            <Dialog.Close className="rounded-lg border border-slate-700 p-2 text-foreground transition hover:bg-slate-900">
               <X className="size-4" />
             </Dialog.Close>
           </div>

@@ -25,9 +25,9 @@ export default function DateOnlyInput({
       {name ? <input type="hidden" name={name} value={value} /> : null}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 flex items-center rounded-xl px-3 font-mono text-sm text-slate-100"
+        className="pointer-events-none absolute inset-0 flex items-center rounded-xl px-3 font-mono text-sm text-foreground"
       >
-        <span className={value ? "text-slate-100" : "text-slate-500"}>{value || "yyyy-mm-dd"}</span>
+        <span className={value ? "text-foreground" : "text-foreground"}>{value || "yyyy-mm-dd"}</span>
       </div>
       <input
         id={id}

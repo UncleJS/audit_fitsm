@@ -16,8 +16,8 @@ export default function UsersTab({
         <Card>
           <CardContent className="space-y-4 p-5">
             <div>
-              <p className="text-sm font-semibold text-slate-50">Selected client</p>
-              <p className="mt-1 text-sm text-slate-400">Choose the client whose users and roles you want to manage.</p>
+              <p className="text-sm font-semibold text-foreground">Selected client</p>
+              <p className="mt-1 text-sm text-foreground">Choose the client whose users and roles you want to manage.</p>
             </div>
             <select value={clientControls.selectedClientId ?? ""} onChange={(event) => clientControls.setSelectedClientId(Number(event.target.value))}>
               {clientControls.clients.map((client) => (
@@ -36,8 +36,8 @@ export default function UsersTab({
             <div className="flex items-center gap-3">
               <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><UserPlus className="size-4" /></span>
               <div>
-                <p className="text-sm font-semibold text-slate-50">Create user in client</p>
-                <p className="mt-1 text-sm text-slate-400">Archive-only behavior is preserved: clearing all roles archives the user in that client.</p>
+                <p className="text-sm font-semibold text-foreground">Create user in client</p>
+                <p className="mt-1 text-sm text-foreground">Archive-only behavior is preserved: clearing all roles archives the user in that client.</p>
               </div>
             </div>
 
@@ -49,7 +49,7 @@ export default function UsersTab({
               </div>
               <div className={`grid gap-2 ${clientControls.roleGridCols} sm:grid-cols-3 xl:grid-cols-4`}>
                 {createUserForm.rolesCatalog.map((role) => (
-                  <label key={`new-role-${role.code}`} className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm text-slate-200">
+                  <label key={`new-role-${role.code}`} className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm text-foreground">
                     <input type="checkbox" className="size-4 w-4 accent-sky-400" checked={createUserForm.selectedRoles.includes(role.code)} onChange={() => createUserForm.setSelectedRoles((prev) => createUserForm.toggleRoleSelection(prev, role.code))} />
                     <span>{decodeHtmlEntities(role.code)}</span>
                   </label>
@@ -64,11 +64,11 @@ export default function UsersTab({
       </div>
 
       <div className="space-y-2">
-        {userTable.orgUsers.length > 0 ? <p className="text-xs uppercase tracking-[0.16em] text-slate-500 lg:hidden">Swipe horizontally to review role assignments and actions</p> : null}
+        {userTable.orgUsers.length > 0 ? <p className="text-xs uppercase tracking-[0.16em] text-foreground lg:hidden">Swipe horizontally to review role assignments and actions</p> : null}
         <Card>
           <CardContent className="p-0">
             {userTable.orgUsers.length === 0 ? (
-              <div className="p-6 text-sm text-slate-400">No users found for this client, or you do not have org admin access.</div>
+              <div className="p-6 text-sm text-foreground">No users found for this client, or you do not have org admin access.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table min-w-[1100px]">
@@ -89,14 +89,14 @@ export default function UsersTab({
                       const saving = !!userTable.savingRolesByUserId[key];
                       return (
                         <tr key={`org-user-${user.id}`}>
-                          <td><div className="font-medium text-slate-50">{decodeHtmlEntities(user.display_name)}</div></td>
-                          <td className="text-slate-300">{decodeHtmlEntities(user.email)}</td>
+                          <td><div className="font-medium text-foreground">{decodeHtmlEntities(user.display_name)}</div></td>
+                          <td className="text-foreground">{decodeHtmlEntities(user.email)}</td>
                           <td>{user.is_active ? "Yes" : "No"}</td>
                           <td><Badge variant={user.has_active_org_roles ? "success" : "warning"}>{user.has_active_org_roles ? "Active" : "Archived"}</Badge></td>
                           <td>
                             <div className={`grid gap-2 ${clientControls.roleGridCols} xl:grid-cols-4`}>
                               {createUserForm.rolesCatalog.map((role) => (
-                                <label key={`user-${user.id}-${role.code}`} className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-xs text-slate-200">
+                                <label key={`user-${user.id}-${role.code}`} className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-xs text-foreground">
                                   <input
                                     type="checkbox"
                                     className="size-4 w-4 accent-sky-400"

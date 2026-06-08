@@ -19,11 +19,11 @@ export default function NewAuditSheet({
     >
       <form onSubmit={form.onSubmit} className="grid gap-4">
         <div className="grid gap-2">
-          <label htmlFor="new-audit-name" className="text-sm font-medium text-slate-300">Audit name</label>
+          <label htmlFor="new-audit-name" className="text-sm font-medium text-foreground">Audit name</label>
           <input id="new-audit-name" value={form.name} onChange={(event) => form.setName(event.target.value)} placeholder="2026 FitSM maturity review" required />
         </div>
         <div className="grid gap-2">
-          <label htmlFor="new-audit-goal" className="text-sm font-medium text-slate-300">Certification goal</label>
+          <label htmlFor="new-audit-goal" className="text-sm font-medium text-foreground">Certification goal</label>
           <select id="new-audit-goal" value={form.certGoalLevel} onChange={(event) => form.setCertGoalLevel(event.target.value)}>
             <option value="1">1 - Initial</option>
             <option value="2">2 - Repeatable / Partial</option>
@@ -33,7 +33,7 @@ export default function NewAuditSheet({
           </select>
         </div>
         <div className="grid gap-2">
-          <label htmlFor="new-audit-date" className="text-sm font-medium text-slate-300">Audit date</label>
+          <label htmlFor="new-audit-date" className="text-sm font-medium text-foreground">Audit date</label>
           <DateOnlyInput id="new-audit-date" name="auditDate" value={form.date} onChange={form.setDate} ariaLabel="Audit date" required />
         </div>
         <div className="flex flex-wrap items-center gap-3 pt-2">

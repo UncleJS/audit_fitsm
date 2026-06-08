@@ -2,9 +2,9 @@ CREATE TABLE IF NOT EXISTS roles (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   code VARCHAR(64) NOT NULL,
   description VARCHAR(255) NOT NULL,
-  archived_at DATETIME(3) NULL,
-  created_at DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
-  active_code VARCHAR(64) AS (CASE WHEN archived_at IS NULL THEN code ELSE NULL END) STORED,
+  archived_at_UTC DATETIME(3) NULL,
+  created_at_UTC DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
+  active_code VARCHAR(64) AS (CASE WHEN archived_at_UTC IS NULL THEN code ELSE NULL END) STORED,
   PRIMARY KEY (id),
   UNIQUE KEY uq_roles_active_code (active_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -13,9 +13,9 @@ CREATE TABLE IF NOT EXISTS permissions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   code VARCHAR(128) NOT NULL,
   description VARCHAR(255) NOT NULL,
-  archived_at DATETIME(3) NULL,
-  created_at DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
-  active_code VARCHAR(128) AS (CASE WHEN archived_at IS NULL THEN code ELSE NULL END) STORED,
+  archived_at_UTC DATETIME(3) NULL,
+  created_at_UTC DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
+  active_code VARCHAR(128) AS (CASE WHEN archived_at_UTC IS NULL THEN code ELSE NULL END) STORED,
   PRIMARY KEY (id),
   UNIQUE KEY uq_permissions_active_code (active_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -24,10 +24,10 @@ CREATE TABLE IF NOT EXISTS role_permissions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   role_id BIGINT UNSIGNED NOT NULL,
   permission_id BIGINT UNSIGNED NOT NULL,
-  archived_at DATETIME(3) NULL,
-  created_at DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
-  active_role_id BIGINT UNSIGNED AS (CASE WHEN archived_at IS NULL THEN role_id ELSE NULL END) STORED,
-  active_permission_id BIGINT UNSIGNED AS (CASE WHEN archived_at IS NULL THEN permission_id ELSE NULL END) STORED,
+  archived_at_UTC DATETIME(3) NULL,
+  created_at_UTC DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
+  active_role_id BIGINT UNSIGNED AS (CASE WHEN archived_at_UTC IS NULL THEN role_id ELSE NULL END) STORED,
+  active_permission_id BIGINT UNSIGNED AS (CASE WHEN archived_at_UTC IS NULL THEN permission_id ELSE NULL END) STORED,
   PRIMARY KEY (id),
   UNIQUE KEY uq_role_permissions_active (active_role_id, active_permission_id),
   KEY idx_role_permissions_role_id (role_id),
@@ -41,12 +41,12 @@ CREATE TABLE IF NOT EXISTS org_user_roles (
   org_id BIGINT UNSIGNED NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL,
   role_id BIGINT UNSIGNED NOT NULL,
-  archived_at DATETIME(3) NULL,
-  created_at DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
+  archived_at_UTC DATETIME(3) NULL,
+  created_at_UTC DATETIME(3) NOT NULL DEFAULT UTC_TIMESTAMP(3),
   created_by BIGINT UNSIGNED NULL,
-  active_org_id BIGINT UNSIGNED AS (CASE WHEN archived_at IS NULL THEN org_id ELSE NULL END) STORED,
-  active_user_id BIGINT UNSIGNED AS (CASE WHEN archived_at IS NULL THEN user_id ELSE NULL END) STORED,
-  active_role_id BIGINT UNSIGNED AS (CASE WHEN archived_at IS NULL THEN role_id ELSE NULL END) STORED,
+  active_org_id BIGINT UNSIGNED AS (CASE WHEN archived_at_UTC IS NULL THEN org_id ELSE NULL END) STORED,
+  active_user_id BIGINT UNSIGNED AS (CASE WHEN archived_at_UTC IS NULL THEN user_id ELSE NULL END) STORED,
+  active_role_id BIGINT UNSIGNED AS (CASE WHEN archived_at_UTC IS NULL THEN role_id ELSE NULL END) STORED,
   PRIMARY KEY (id),
   UNIQUE KEY uq_org_user_roles_active (active_org_id, active_user_id, active_role_id),
   KEY idx_org_user_roles_org_id (org_id),
@@ -88,4 +88,4 @@ WHERE
   (r.code = 'lead_auditor' AND p.code IN ('audit.read','audit.write','assessment.write','assessment.note.write','report.read')) OR
   (r.code = 'auditor' AND p.code IN ('audit.read','assessment.write','assessment.note.write','report.read')) OR
   (r.code = 'viewer' AND p.code IN ('audit.read','report.read'))
-ON DUPLICATE KEY UPDATE created_at = role_permissions.created_at;
+ON DUPLICATE KEY UPDATE created_at_UTC = role_permissions.created_at_UTC;

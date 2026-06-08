@@ -19,6 +19,9 @@ jobs:
       - name: Enforce UI date-input policy
         run: bash ./scripts/check-ui-date-inputs.sh
 
+      - name: Enforce UI text-color policy
+        run: bash ./scripts/check-ui-text-colors.sh
+
       - name: Install Podman
         run: |
           sudo apt-get update

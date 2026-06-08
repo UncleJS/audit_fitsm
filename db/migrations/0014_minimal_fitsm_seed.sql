@@ -14,7 +14,7 @@ ON DUPLICATE KEY UPDATE
   kind = VALUES(kind),
   sort_order = VALUES(sort_order),
   default_cert_goal_level = VALUES(default_cert_goal_level),
-  updated_at = UTC_TIMESTAMP(3);
+  updated_at_UTC = UTC_TIMESTAMP(3);
 
 INSERT INTO requirements (process_id, code, requirement_text, sort_order)
 SELECT
@@ -23,11 +23,11 @@ SELECT
   'A member of top management of the service provider(s) involved in the delivery of services shall be assigned as the SMS owner to be accountable for the overall SMS.',
   10
 FROM processes p
-WHERE p.code = 'GR1' AND p.archived_at IS NULL
+WHERE p.code = 'GR1' AND p.archived_at_UTC IS NULL
 ON DUPLICATE KEY UPDATE
   requirement_text = VALUES(requirement_text),
   sort_order = VALUES(sort_order),
-  updated_at = UTC_TIMESTAMP(3);
+  updated_at_UTC = UTC_TIMESTAMP(3);
 
 INSERT INTO requirement_level_guidance (requirement_id, capability_score_id, guidance_text)
 SELECT
@@ -45,8 +45,8 @@ FROM requirements r
 JOIN capability_scores cs
   ON cs.label IN ('0', '1', '2', '3', '4')
 WHERE r.code = 'GR1.1'
-  AND r.archived_at IS NULL
-  AND cs.archived_at IS NULL
+  AND r.archived_at_UTC IS NULL
+  AND cs.archived_at_UTC IS NULL
 ON DUPLICATE KEY UPDATE
   guidance_text = VALUES(guidance_text),
-  updated_at = UTC_TIMESTAMP(3);
+  updated_at_UTC = UTC_TIMESTAMP(3);

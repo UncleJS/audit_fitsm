@@ -61,6 +61,9 @@ const parseJwtPayload = (token: string): any | null => {
   }
 };
 
+// Cosmetic only: decodes the (unverified) JWT to decide which admin tabs to
+// render. This is NOT a security boundary — every admin action is authorized
+// server-side (see isSystemAdmin / hasOrgRole checks in apps/api/src/index.ts).
 const hasAdminRoleFromToken = (token: string): boolean => {
   const payload = parseJwtPayload(token);
   const orgRoles = payload?.orgRoles;
@@ -203,7 +206,7 @@ export default function AdminPage() {
     return (
       <PageShell>
         <PageSection title="Admin workspace" eyebrow="Admin" description="Loading client and access controls.">
-          <p className="text-sm text-slate-400">Preparing administrative tools…</p>
+          <p className="text-sm text-foreground">Preparing administrative tools…</p>
         </PageSection>
       </PageShell>
     );
@@ -213,7 +216,7 @@ export default function AdminPage() {
     return (
       <PageShell>
         <PageSection title="Admin workspace" eyebrow="Admin" description="Redirecting to login.">
-          <p className="text-sm text-slate-400">You need an authenticated admin session to continue.</p>
+          <p className="text-sm text-foreground">You need an authenticated admin session to continue.</p>
         </PageSection>
       </PageShell>
     );
@@ -365,8 +368,8 @@ export default function AdminPage() {
             <CardContent className="flex items-center gap-4 p-4">
               <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Shield className="size-4" /></span>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Admin access</p>
-                <p className="mt-2 text-lg font-semibold text-slate-50">{hasAdminAccess ? "Granted" : "Checking"}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Admin access</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{hasAdminAccess ? "Granted" : "Checking"}</p>
               </div>
             </CardContent>
           </Card>
@@ -374,8 +377,8 @@ export default function AdminPage() {
             <CardContent className="flex items-center gap-4 p-4">
               <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Settings2 className="size-4" /></span>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Clients</p>
-                <p className="mt-2 text-lg font-semibold text-slate-50">{clients.length}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Clients</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{clients.length}</p>
               </div>
             </CardContent>
           </Card>
@@ -383,8 +386,8 @@ export default function AdminPage() {
             <CardContent className="flex items-center gap-4 p-4">
               <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Users className="size-4" /></span>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Users in selected client</p>
-                <p className="mt-2 text-lg font-semibold text-slate-50">{orgUsers.length}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">Users in selected client</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{orgUsers.length}</p>
               </div>
             </CardContent>
           </Card>

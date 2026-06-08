@@ -107,9 +107,31 @@
     "/clients": {
       "get": {
         "summary": "List accessible clients (organizations)",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Max items to return (default 50, max 200).",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Number of items to skip.",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Client list"
+            "description": "Client list",
+            "headers": {
+              "X-Total-Count": {
+                "description": "Total number of matching items in the unpaginated result set.",
+                "schema": { "type": "integer" }
+              }
+            }
           }
         }
       },
@@ -155,11 +177,31 @@
             "in": "path",
             "required": true,
             "schema": { "type": "integer" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Max items to return (default 50, max 200).",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Number of items to skip.",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
           }
         ],
         "responses": {
           "200": {
-            "description": "Organization user list"
+            "description": "Organization user list",
+            "headers": {
+              "X-Total-Count": {
+                "description": "Total number of matching items in the unpaginated result set.",
+                "schema": { "type": "integer" }
+              }
+            }
           }
         }
       },
@@ -213,11 +255,31 @@
             "in": "path",
             "required": true,
             "schema": { "type": "integer" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Max items to return (default 50, max 200).",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Number of items to skip.",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
           }
         ],
         "responses": {
           "200": {
             "description": "Audits list",
+            "headers": {
+              "X-Total-Count": {
+                "description": "Total number of matching items in the unpaginated result set.",
+                "schema": { "type": "integer" }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {

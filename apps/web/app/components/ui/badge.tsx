@@ -2,11 +2,11 @@ import type { HTMLAttributes } from "react";
 import { cn } from "./cn";
 
 const variants = {
-  default: "border-slate-700 bg-slate-900 text-slate-200",
+  default: "border-slate-700 bg-slate-900 text-foreground",
   draft: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
   in_progress: "border-amber-400/40 bg-amber-400/15 text-amber-100",
   completed: "border-violet-400/40 bg-violet-400/15 text-violet-100",
-  archived: "border-slate-600 bg-slate-800 text-slate-300",
+  archived: "border-slate-600 bg-slate-800 text-foreground",
   success: "border-emerald-500/40 bg-emerald-500/15 text-emerald-100",
   warning: "border-amber-500/40 bg-amber-500/15 text-amber-100",
   error: "border-rose-500/40 bg-rose-500/15 text-rose-100",

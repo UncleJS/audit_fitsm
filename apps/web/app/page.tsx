@@ -20,8 +20,8 @@ type AuditRow = {
   name: string;
   status: string;
   audit_date: string;
-  created_at?: string;
-  updated_at?: string;
+  created_at_UTC?: string;
+  updated_at_UTC?: string;
 };
 
 type TrendRow = {
@@ -172,7 +172,7 @@ export default function HomePage() {
     return (
       <PageShell>
         <PageSection title="Audit FitSM Workspace" description="Loading your workspace." eyebrow="Dashboard">
-          <p className="text-sm text-slate-400">Preparing clients, audits, and trends…</p>
+          <p className="text-sm text-foreground">Preparing clients, audits, and trends…</p>
         </PageSection>
       </PageShell>
     );
@@ -182,7 +182,7 @@ export default function HomePage() {
     return (
       <PageShell>
         <PageSection title="Audit FitSM Workspace" description="Redirecting to login." eyebrow="Dashboard">
-          <p className="text-sm text-slate-400">You need to sign in before viewing client workspaces.</p>
+          <p className="text-sm text-foreground">You need to sign in before viewing client workspaces.</p>
         </PageSection>
       </PageShell>
     );
@@ -200,11 +200,11 @@ export default function HomePage() {
       if (sortBy === "status_asc") return a.status.localeCompare(b.status) || a.name.localeCompare(b.name);
       if (sortBy === "audit_date_asc") return String(a.audit_date).localeCompare(String(b.audit_date));
       if (sortBy === "audit_date_desc") return String(b.audit_date).localeCompare(String(a.audit_date));
-      return String(b.updated_at ?? b.audit_date).localeCompare(String(a.updated_at ?? a.audit_date));
+      return String(b.updated_at_UTC ?? b.audit_date).localeCompare(String(a.updated_at_UTC ?? a.audit_date));
     });
 
   const recentlyUpdated = [...audits]
-    .sort((a, b) => String(b.updated_at ?? b.audit_date).localeCompare(String(a.updated_at ?? a.audit_date)))
+    .sort((a, b) => String(b.updated_at_UTC ?? b.audit_date).localeCompare(String(a.updated_at_UTC ?? a.audit_date)))
     .slice(0, 4);
 
   const trendByAudit = (() => {
@@ -386,10 +386,10 @@ export default function HomePage() {
 
         <div className="grid gap-4 rounded-2xl border border-slate-800/80 bg-slate-950/45 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
           <div className="space-y-2">
-            <p className="text-sm font-medium text-slate-300">API docs</p>
-            <p className="text-sm text-slate-400">Open the backend OpenAPI docs directly from the current environment.</p>
+            <p className="text-sm font-medium text-foreground">API docs</p>
+            <p className="text-sm text-foreground">Open the backend OpenAPI docs directly from the current environment.</p>
           </div>
-          <Link href={`${apiUrl}/docs`} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-100 hover:border-slate-500">
+          <Link href={`${apiUrl}/docs`} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-foreground hover:border-slate-500">
             Open /docs <ArrowRight className="size-4" />
           </Link>
         </div>

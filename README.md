@@ -91,6 +91,7 @@ This project is Podman-only. Do not use Docker or rootful containers.
 - `docs/audit-workspace.md` - audit workspace user guide
 - `docs/development-runtime.md` - container-first development and rebuild workflow
 - `docs/api-surface.md` - route inventory and behavior notes
+- `docs/schema-overview.md` - database schema, ERD, and reporting views
 - `docs/integration-testing.md` - integration and readiness validation
 - `docs/ci-runbook.md` - CI troubleshooting
 - `docs/ui-date-formatting.md` - date and timestamp formatting policy

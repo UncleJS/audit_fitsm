@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+@theme {
+  --color-background: hsl(222 47% 7%);
+  --color-foreground: hsl(220 45% 95%);
+  --color-card: hsl(224 40% 11%);
+  --color-card-foreground: hsl(220 45% 95%);
+  --color-muted: hsl(223 29% 17%);
+  --color-muted-foreground: hsl(221 25% 73%);
+  --color-border: hsl(224 30% 22%);
+  --color-input: hsl(223 29% 17%);
+  --color-primary: hsl(203 89% 62%);
+  --color-primary-foreground: hsl(222 47% 11%);
+  --color-ring: hsl(203 89% 62%);
+}
+
 :root {
   color-scheme: dark;
   --background: 222 47% 7%;
@@ -71,7 +85,7 @@
     @apply border-b border-slate-900 px-3 py-3 align-top text-sm text-white;
   }
 
-  [class*="text-slate-"],
+  /* Accent text colors render white for uniform high-contrast text. */
   [class*="text-sky-"],
   [class*="text-rose-"],
   [class*="text-amber-"],

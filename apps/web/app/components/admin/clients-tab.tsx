@@ -9,8 +9,8 @@ export default function ClientsTab({ createClient, newClientName, setNewClientNa
       <Card>
         <CardContent className="space-y-4 p-5">
           <div>
-            <p className="text-sm font-semibold text-slate-50">Create client</p>
-            <p className="mt-1 text-sm text-slate-400">Add a new organization before assigning audits and roles.</p>
+            <p className="text-sm font-semibold text-foreground">Create client</p>
+            <p className="mt-1 text-sm text-foreground">Add a new organization before assigning audits and roles.</p>
           </div>
           <form onSubmit={createClient} className="grid gap-3">
             <input value={newClientName} onChange={(event) => setNewClientName(event.target.value)} placeholder="New client name" required />
@@ -22,7 +22,7 @@ export default function ClientsTab({ createClient, newClientName, setNewClientNa
       <Card>
         <CardContent className="p-0">
           {clients.length === 0 ? (
-            <div className="p-6 text-sm text-slate-400">No clients available yet.</div>
+            <div className="p-6 text-sm text-foreground">No clients available yet.</div>
           ) : (
             <table className="data-table min-w-full">
               <thead>
@@ -35,8 +35,8 @@ export default function ClientsTab({ createClient, newClientName, setNewClientNa
               <tbody>
                 {clients.map((client) => (
                   <tr key={client.id}>
-                    <td className="font-medium text-slate-50">{decodeHtmlEntities(client.name)}</td>
-                    <td className="font-mono text-slate-400">#{client.id}</td>
+                    <td className="font-medium text-foreground">{decodeHtmlEntities(client.name)}</td>
+                    <td className="font-mono text-foreground">#{client.id}</td>
                     <td>
                       <Button size="sm" variant={selectedClientId === client.id ? "primary" : "secondary"} onClick={() => setSelectedClientId(client.id)}>
                         {selectedClientId === client.id ? "Selected" : "Select"}

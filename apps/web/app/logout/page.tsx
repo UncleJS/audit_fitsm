@@ -25,8 +25,8 @@ export default function LogoutPage() {
               <LogOut className="size-6" />
             </span>
             <div>
-              <h1 className="text-xl font-semibold text-slate-50">Signing out</h1>
-              <p className="mt-2 text-sm text-slate-400">Clearing the current session and returning to login.</p>
+              <h1 className="text-xl font-semibold text-foreground">Signing out</h1>
+              <p className="mt-2 text-sm text-foreground">Clearing the current session and returning to login.</p>
             </div>
           </CardContent>
         </Card>

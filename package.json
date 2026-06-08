@@ -16,6 +16,7 @@
     "preflight:ports": "bash ./scripts/preflight-ports.sh",
     "inspect:ports": "bash ./scripts/ports.sh",
     "check:ui-date-inputs": "bash ./scripts/check-ui-date-inputs.sh",
+    "check:ui-text-colors": "bash ./scripts/check-ui-text-colors.sh",
     "health:readiness": "bash ./scripts/health-readiness.sh",
     "integration:test": "bash ./scripts/integration-test.sh"
   }

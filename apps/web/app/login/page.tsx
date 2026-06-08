@@ -98,7 +98,7 @@ export default function LoginPage() {
         `}</style>
         <PageShell className="min-h-[calc(100vh-3rem)] items-center justify-center">
           <Card className="w-full max-w-md">
-            <CardContent className="p-8 text-center text-sm text-slate-400">Loading…</CardContent>
+            <CardContent className="p-8 text-center text-sm text-foreground">Loading…</CardContent>
           </Card>
         </PageShell>
       </>
@@ -118,18 +118,18 @@ export default function LoginPage() {
                 <LockKeyhole className="size-6" />
               </div>
               <div>
-                <h1 className="text-2xl font-semibold text-slate-50">Sign in</h1>
-                <p className="mt-2 text-sm text-slate-400">Access the FitSM audit dashboard, workspace, and admin tools.</p>
+                <h1 className="text-2xl font-semibold text-foreground">Sign in</h1>
+                <p className="mt-2 text-sm text-foreground">Access the FitSM audit dashboard, workspace, and admin tools.</p>
               </div>
             </div>
 
             <form onSubmit={login} className="grid gap-4">
               <div className="grid gap-2">
-                <label htmlFor="email" className="text-sm font-medium text-slate-300">Email</label>
+                <label htmlFor="email" className="text-sm font-medium text-foreground">Email</label>
                 <input id="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" required />
               </div>
               <div className="grid gap-2">
-                <label htmlFor="password" className="text-sm font-medium text-slate-300">Password</label>
+                <label htmlFor="password" className="text-sm font-medium text-foreground">Password</label>
                 <input id="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" required />
               </div>
               <Button type="submit" disabled={submitting} className="w-full justify-center">

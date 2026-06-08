@@ -257,7 +257,7 @@ export default function AuditWorkspacePage() {
     };
     hasLoadedWorkspaceRef.current = true;
     setAutosaveState({ status: "idle", section: "", detail: "" });
-    setLastSavedAt(String(data.audit?.updated_at ?? ""));
+    setLastSavedAt(String(data.audit?.updated_at_UTC ?? ""));
 
     const exportsRes = await fetch(`${apiUrl}/audits/${auditId}/exports`, {
       headers: authHeaders(authToken),
@@ -929,7 +929,7 @@ export default function AuditWorkspacePage() {
     return (
       <PageShell>
         <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit data." >
-          <p className="text-sm text-slate-400">Preparing requirements, exports, and activity…</p>
+          <p className="text-sm text-foreground">Preparing requirements, exports, and activity…</p>
         </PageSection>
       </PageShell>
     );
@@ -939,7 +939,7 @@ export default function AuditWorkspacePage() {
     return (
       <PageShell>
         <PageSection title="Audit workspace" eyebrow="Audit" description="Redirecting to login." >
-          <p className="text-sm text-slate-400">A valid session is required for audit scoring and exports.</p>
+          <p className="text-sm text-foreground">A valid session is required for audit scoring and exports.</p>
         </PageSection>
       </PageShell>
     );
@@ -949,12 +949,12 @@ export default function AuditWorkspacePage() {
     return (
       <PageShell>
         <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit context and requirement groups.">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
             <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Back to clients</Link>
             <span aria-hidden="true">/</span>
             <span>Audit {auditId || "…"}</span>
           </div>
-          <p className="text-sm text-slate-300">{message || "Loading audit…"}</p>
+          <p className="text-sm text-foreground">{message || "Loading audit…"}</p>
         </PageSection>
       </PageShell>
     );
@@ -989,7 +989,7 @@ export default function AuditWorkspacePage() {
           eyebrow="Audit workspace"
           description="The audit is now separated into overview, process scoring, exports, activity, details, and conclusion so each task area stays focused."
         >
-          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
             <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Clients</Link>
             <span aria-hidden="true">/</span>
             <span>{decodeHtmlEntities(workspace.audit.name)}</span>
@@ -999,8 +999,8 @@ export default function AuditWorkspacePage() {
             {auditSummary.map((item) => (
               <Card key={item.label} className="bg-slate-950/45">
                 <CardContent className="p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
-                  <p className="mt-3 text-lg font-semibold text-slate-50">{item.value}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-foreground">{item.label}</p>
+                  <p className="mt-3 text-lg font-semibold text-foreground">{item.value}</p>
                 </CardContent>
               </Card>
             ))}
@@ -1009,8 +1009,8 @@ export default function AuditWorkspacePage() {
           <Card className="border-sky-500/35 bg-slate-950/65">
             <CardContent className="space-y-4 p-5">
               <div>
-                <p className="text-sm font-semibold text-slate-50">Manual save buttons</p>
-                <p className="mt-1 text-sm text-slate-300">These buttons are always available here near the top of the audit page.</p>
+                <p className="text-sm font-semibold text-foreground">Manual save buttons</p>
+                <p className="mt-1 text-sm text-foreground">These buttons are always available here near the top of the audit page.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
@@ -1019,7 +1019,7 @@ export default function AuditWorkspacePage() {
                 <Button variant="secondary" onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>
                 <Button onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
               </div>
-              <div className="text-xs text-slate-400">{manualSaveHint}</div>
+              <div className="text-xs text-foreground">{manualSaveHint}</div>
             </CardContent>
           </Card>
 
@@ -1027,11 +1027,11 @@ export default function AuditWorkspacePage() {
             <Card className="bg-slate-950/45">
               <CardContent className="space-y-4 p-5">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-50">Audit status</p>
+                  <p className="text-sm font-semibold text-foreground">Audit status</p>
                   <Badge variant={statusVariant(auditStatus)}>{auditStatus.replace("_", " ")}</Badge>
                 </div>
                 <div className="grid gap-2">
-                  <label className="text-sm font-medium text-slate-300">Transition</label>
+                  <label className="text-sm font-medium text-foreground">Transition</label>
                   <select value={statusEdit} onChange={(event) => setStatusEdit(event.target.value)} disabled={!canManageStatus}>
                     <option value={auditStatus}>{auditStatus}</option>
                     {allowedStatusTransitions.map((status: string) => (
@@ -1049,7 +1049,7 @@ export default function AuditWorkspacePage() {
 
             <Card className="bg-slate-950/45">
               <CardContent className="space-y-4 p-5">
-                <p className="text-sm font-semibold text-slate-50">Save and export actions</p>
+                <p className="text-sm font-semibold text-foreground">Save and export actions</p>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
                   <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
@@ -1075,11 +1075,11 @@ export default function AuditWorkspacePage() {
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-50">Save controls</p>
-                <p className="text-xs text-slate-400">{autosaveIndicatorText}</p>
-                <p className="mt-1 text-xs text-slate-500">{lastSavedText}</p>
+                <p className="text-sm font-semibold text-foreground">Save controls</p>
+                <p className="text-xs text-foreground">{autosaveIndicatorText}</p>
+                <p className="mt-1 text-xs text-foreground">{lastSavedText}</p>
               </div>
-              <div className="text-xs text-slate-500 lg:max-w-sm lg:text-right">{manualSaveHint}</div>
+              <div className="text-xs text-foreground lg:max-w-sm lg:text-right">{manualSaveHint}</div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope</Button>
@@ -1127,7 +1127,7 @@ export default function AuditWorkspacePage() {
 
             <PageSection title="2. Exports" eyebrow="Outputs" description="Generate and retrieve stored exports without leaving the audit context.">
               {pdfExports.length === 0 ? (
-                <p className="text-sm text-slate-400">No stored PDF exports yet.</p>
+                <p className="text-sm text-foreground">No stored PDF exports yet.</p>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
                   <table className="data-table min-w-[760px]">
@@ -1143,7 +1143,7 @@ export default function AuditWorkspacePage() {
                     <tbody>
                       {pdfExports.map((item: any) => (
                         <tr key={item.id}>
-                          <td>{formatLocalTimestamp(item.generated_at)}</td>
+                          <td>{formatLocalTimestamp(item.generated_at_UTC)}</td>
                           <td>{item.file_name}</td>
                           <td>{formatBytes(item.file_size_bytes)}</td>
                           <td>{item.is_current ? "Yes" : "No"}</td>
@@ -1162,18 +1162,18 @@ export default function AuditWorkspacePage() {
 
             <PageSection title="3. Audit activity" eyebrow="Timeline" description="Review status changes, saved updates, and archived or restored assessments in local time.">
               {(workspace.auditEvents ?? []).length === 0 ? (
-                <p className="text-sm text-slate-400">No audit-level activity recorded yet.</p>
+                <p className="text-sm text-foreground">No audit-level activity recorded yet.</p>
               ) : (
                 <div className="grid gap-3">
                   {(workspace.auditEvents ?? []).map((event: any) => (
                     <Card key={`audit-event-${event.id}`} className="bg-slate-950/45">
                       <CardContent className="flex flex-col gap-2 p-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2 text-slate-50"><History className="size-4 text-sky-300" /> <strong>{auditEventLabel(String(event.event_type))}</strong></div>
-                          <p className="text-sm text-slate-300">{auditEventSummary(event) ? decodeHtmlEntities(auditEventSummary(event)) : "No summary available."}</p>
-                          {event.actor_name ? <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Actor: {decodeHtmlEntities(event.actor_name)}</p> : null}
+                          <div className="flex items-center gap-2 text-foreground"><History className="size-4 text-sky-300" /> <strong>{auditEventLabel(String(event.event_type))}</strong></div>
+                          <p className="text-sm text-foreground">{auditEventSummary(event) ? decodeHtmlEntities(auditEventSummary(event)) : "No summary available."}</p>
+                          {event.actor_name ? <p className="text-xs uppercase tracking-[0.14em] text-foreground">Actor: {decodeHtmlEntities(event.actor_name)}</p> : null}
                         </div>
-                        <div className="text-sm text-slate-400">{formatLocalTimestamp(event.created_at)}</div>
+                        <div className="text-sm text-foreground">{formatLocalTimestamp(event.created_at_UTC)}</div>
                       </CardContent>
                     </Card>
                   ))}
@@ -1199,8 +1199,8 @@ export default function AuditWorkspacePage() {
                       return (
                         <tr key={detail.field_key}>
                           <td>
-                            <div className="font-semibold text-slate-50">{decodeHtmlEntities(detail.label)}</div>
-                            {detail.guidance_text ? <div className="mt-2 text-sm text-slate-400">{decodeHtmlEntities(detail.guidance_text)}</div> : null}
+                            <div className="font-semibold text-foreground">{decodeHtmlEntities(detail.label)}</div>
+                            {detail.guidance_text ? <div className="mt-2 text-sm text-foreground">{decodeHtmlEntities(detail.guidance_text)}</div> : null}
                           </td>
                           <td>
                             <textarea rows={3} value={edit.responseText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, responseText: event.target.value } }))} onBlur={() => requestImmediateAutosave("details")} />
@@ -1220,7 +1220,7 @@ export default function AuditWorkspacePage() {
               action={<Button onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>}
             >
               <textarea rows={8} value={conclusionEdit} disabled={!canLeadEdit} onChange={(event) => setConclusionEdit(event.target.value)} onBlur={() => requestImmediateAutosave("conclusion")} placeholder="Enter audit conclusion" />
-              <div className="text-sm text-slate-400">
+              <div className="text-sm text-foreground">
                 <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Back to clients and audits</Link>
               </div>
             </PageSection>

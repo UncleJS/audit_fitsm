@@ -13,11 +13,11 @@ function ProcessNavButtons({ processes, activeProcessCode, onJump, compact = fal
           className={`rounded-xl border px-3 py-2 text-left text-sm transition ${compact ? "shrink-0 font-medium" : ""} ${
             activeProcessCode === String(group.processCode)
               ? "border-sky-400/60 bg-sky-500/10 text-sky-100"
-              : "border-slate-800 bg-slate-950/45 text-slate-300 hover:border-slate-600 hover:text-slate-100"
+              : "border-slate-800 bg-slate-950/45 text-foreground hover:border-slate-600 hover:text-foreground"
           }`}
         >
           <div className="font-medium">{group.processCode}</div>
-          {!compact ? <div className="mt-1 text-xs text-slate-400">{group.processAbbreviation}</div> : null}
+          {!compact ? <div className="mt-1 text-xs text-foreground">{group.processAbbreviation}</div> : null}
         </button>
       ))}
     </div>
@@ -29,7 +29,7 @@ export function ProcessSidebarNav({ processes, activeProcessCode, onJump }) {
     <aside className="hidden xl:block">
       <Card className="sticky top-24 bg-slate-950/55">
         <CardContent className="space-y-4 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-50">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <PanelLeft className="size-4 text-sky-300" /> Process navigation
           </div>
           <ProcessNavButtons processes={processes} activeProcessCode={activeProcessCode} onJump={onJump} />

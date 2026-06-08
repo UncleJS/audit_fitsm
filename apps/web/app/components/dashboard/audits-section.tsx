@@ -21,7 +21,7 @@ export default function AuditsSection({
     >
       <div className="grid gap-3 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
         <div className="grid gap-2">
-          <label htmlFor="status-filter" className="text-sm font-medium text-slate-300">Status filter</label>
+          <label htmlFor="status-filter" className="text-sm font-medium text-foreground">Status filter</label>
           <select id="status-filter" value={filters.statusFilter} onChange={(event) => filters.setStatusFilter(event.target.value)}>
             <option value="all">All</option>
             <option value="draft">Draft</option>
@@ -30,11 +30,11 @@ export default function AuditsSection({
           </select>
         </div>
         <div className="grid gap-2 xl:col-span-2">
-          <label htmlFor="search-audits" className="text-sm font-medium text-slate-300">Search</label>
+          <label htmlFor="search-audits" className="text-sm font-medium text-foreground">Search</label>
           <input id="search-audits" value={filters.searchTerm} onChange={(event) => filters.setSearchTerm(event.target.value)} placeholder="Search by ID, name, status, or date" />
         </div>
         <div className="grid gap-2">
-          <label htmlFor="sort-by" className="text-sm font-medium text-slate-300">Sort by</label>
+          <label htmlFor="sort-by" className="text-sm font-medium text-foreground">Sort by</label>
           <select id="sort-by" value={filters.sortBy} onChange={(event) => filters.setSortBy(event.target.value)}>
             <option value="updated_desc">Recently updated</option>
             <option value="audit_date_desc">Audit date (newest)</option>
@@ -49,11 +49,11 @@ export default function AuditsSection({
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.16em] text-slate-500 lg:hidden">Swipe horizontally to view audit actions and links</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-foreground lg:hidden">Swipe horizontally to view audit actions and links</p>
         <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
           {table.filteredAudits.length === 0 ? (
-            <div className="grid gap-2 p-6 text-sm text-slate-400">
-              <p className="font-medium text-slate-200">No audits match the current filters.</p>
+            <div className="grid gap-2 p-6 text-sm text-foreground">
+              <p className="font-medium text-foreground">No audits match the current filters.</p>
               <p>Create a new audit or change the filters to see more records.</p>
             </div>
           ) : (
@@ -75,11 +75,11 @@ export default function AuditsSection({
                   const isSaving = !!table.statusSavingByAuditId[String(audit.id)];
                   return (
                     <tr key={audit.id}>
-                      <td className="font-mono text-slate-400">#{audit.id}</td>
-                      <td><div className="font-medium text-slate-50">{decodeHtmlEntities(audit.name)}</div></td>
+                      <td className="font-mono text-foreground">#{audit.id}</td>
+                      <td><div className="font-medium text-foreground">{decodeHtmlEntities(audit.name)}</div></td>
                       <td><Badge variant={statusVariant(audit.status)}>{audit.status.replace("_", " ")}</Badge></td>
                       <td>{formatDateOnly(audit.audit_date)}</td>
-                      <td>{formatLocalTimestamp(audit.updated_at ?? audit.audit_date)}</td>
+                      <td>{formatLocalTimestamp(audit.updated_at_UTC ?? audit.audit_date)}</td>
                       <td><Button size="sm" variant="secondary" disabled={!nextStatus || isSaving} onClick={() => nextStatus && actions.updateAuditStatus(audit.id, nextStatus)}>{isSaving ? "Saving…" : actions.quickActionLabel(audit.status)}</Button></td>
                       <td><Link href={`/audits/${audit.id}`} className="inline-flex items-center gap-2 text-sm font-medium text-sky-300">Open workspace <ArrowRight className="size-4" /></Link></td>
                     </tr>

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { mkdir, readFile as readFileFs, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import Elysia from "elysia";
 import { jwt } from "@elysiajs/jwt";
@@ -24,6 +24,28 @@ const openApiDoc = JSON.parse(
 );
 
 const db = getDb();
+
+// Runs fn inside a single transaction, committing on success and rolling back
+// on any error so multi-statement writes never leave partial state.
+async function withTransaction(fn) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await fn(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    try {
+      await conn.rollback();
+    } catch {
+      // ignore rollback failure; original error is rethrown below
+    }
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 const corsAllowedOrigins = new Set(config.cors.allowedOrigins);
 let tokenVersionColumnExistsPromise: Promise<boolean> | null = null;
 const tableExistsPromiseByName = new Map<string, Promise<boolean>>();
@@ -60,6 +82,9 @@ const hasTable = async (tableName: string): Promise<boolean> => {
   return tableExistsPromiseByName.get(tableName)!;
 };
 
+// NOTE: the result is cached for the process lifetime. A migration that adds the
+// token_version column while the API is running will not be observed until the
+// process restarts; restart the API after applying migrations.
 const hasTokenVersionColumn = async (): Promise<boolean> => {
   tokenVersionColumnExistsPromise ??= db
     .query<RowDataPacket[]>(
@@ -94,8 +119,8 @@ const revokeUserSessions = async (userId: number): Promise<void> => {
     await db.execute(
       `UPDATE users
        SET token_version = token_version + 1,
-           updated_at = UTC_TIMESTAMP(3)
-       WHERE id = ? AND archived_at IS NULL`,
+           updated_at_UTC = UTC_TIMESTAMP(3)
+       WHERE id = ? AND archived_at_UTC IS NULL`,
       [userId]
     );
     return;
@@ -103,8 +128,8 @@ const revokeUserSessions = async (userId: number): Promise<void> => {
 
   await db.execute(
     `UPDATE users
-     SET updated_at = UTC_TIMESTAMP(3)
-     WHERE id = ? AND archived_at IS NULL`,
+     SET updated_at_UTC = UTC_TIMESTAMP(3)
+     WHERE id = ? AND archived_at_UTC IS NULL`,
     [userId]
   );
 };
@@ -163,6 +188,7 @@ const applyCorsHeaders = (set: any, request: Request): void => {
   set.headers["Access-Control-Allow-Origin"] = allowAny ? "*" : origin;
   set.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
   set.headers["Access-Control-Allow-Headers"] = "authorization,content-type";
+  set.headers["Access-Control-Expose-Headers"] = "x-total-count";
   set.headers["Access-Control-Max-Age"] = "86400";
   set.headers["Vary"] = "Origin";
 };
@@ -194,9 +220,9 @@ const getUserScope = async (
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT our.org_id, r.code AS role_code
      FROM org_user_roles our
-     JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
+     JOIN roles r ON r.id = our.role_id AND r.archived_at_UTC IS NULL
      WHERE our.user_id = ?
-       AND our.archived_at IS NULL`,
+       AND our.archived_at_UTC IS NULL`,
     [userId]
   );
 
@@ -223,7 +249,7 @@ const getAuditMeta = async (
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT org_id, status
      FROM audits
-     WHERE id = ? AND archived_at IS NULL
+     WHERE id = ? AND archived_at_UTC IS NULL
      LIMIT 1`,
     [auditId]
   );
@@ -373,11 +399,68 @@ const checkRateLimit = (key: string): { allowed: boolean; retryAfterSec?: number
   return { allowed: true };
 };
 
+// Per-account failed-login throttling. The IP rate limiter alone does not stop
+// a distributed brute force against a single account, so failures are also
+// counted per email and the account is briefly locked once the threshold is hit.
+const failedLoginBuckets = new Map<string, { count: number; resetAt: number }>();
+const maxFailedLogins = Math.max(1, Number(process.env.LOGIN_MAX_FAILED ?? 5));
+const failedLoginWindowMs = Math.max(1000, Number(process.env.LOGIN_LOCKOUT_WINDOW_MS ?? 15 * 60 * 1000));
+
+const loginLockKey = (email: string): string => email.trim().toLowerCase();
+
+const isLoginLocked = (email: string): { locked: boolean; retryAfterSec?: number } => {
+  const bucket = failedLoginBuckets.get(loginLockKey(email));
+  if (!bucket || Date.now() >= bucket.resetAt) {
+    return { locked: false };
+  }
+  if (bucket.count >= maxFailedLogins) {
+    return { locked: true, retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - Date.now()) / 1000)) };
+  }
+  return { locked: false };
+};
+
+const registerFailedLogin = (email: string): void => {
+  const key = loginLockKey(email);
+  const now = Date.now();
+  const bucket = failedLoginBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    failedLoginBuckets.set(key, { count: 1, resetAt: now + failedLoginWindowMs });
+    return;
+  }
+  bucket.count += 1;
+  failedLoginBuckets.set(key, bucket);
+};
+
+const clearFailedLogins = (email: string): void => {
+  failedLoginBuckets.delete(loginLockKey(email));
+};
+
+// Bounded pagination for list endpoints. Defaults keep responses small and cap
+// the maximum page size so a single request cannot pull an unbounded result set.
+const parsePagination = (
+  query: Record<string, unknown> | undefined,
+  opts?: { defaultLimit?: number; maxLimit?: number }
+): { limit: number; offset: number } => {
+  const defaultLimit = opts?.defaultLimit ?? 50;
+  const maxLimit = opts?.maxLimit ?? 200;
+  const rawLimit = Number((query as any)?.limit);
+  const rawOffset = Number((query as any)?.offset);
+  const limit =
+    Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), maxLimit) : defaultLimit;
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+  return { limit, offset };
+};
+
 setInterval(() => {
   const now = Date.now();
   for (const [key, bucket] of rateBuckets.entries()) {
     if (now >= bucket.resetAt) {
       rateBuckets.delete(key);
+    }
+  }
+  for (const [key, bucket] of failedLoginBuckets.entries()) {
+    if (now >= bucket.resetAt) {
+      failedLoginBuckets.delete(key);
     }
   }
 }, 30000).unref?.();
@@ -444,11 +527,11 @@ const app = new Elysia()
       tokenVersionColumnExists
         ? `SELECT id, email, display_name, is_active, token_version
            FROM users
-           WHERE id = ? AND archived_at IS NULL
+           WHERE id = ? AND archived_at_UTC IS NULL
            LIMIT 1`
         : `SELECT id, email, display_name, is_active
            FROM users
-           WHERE id = ? AND archived_at IS NULL
+           WHERE id = ? AND archived_at_UTC IS NULL
            LIMIT 1`,
       [userId]
     );
@@ -562,36 +645,47 @@ const app = new Elysia()
     }
     const payload = parsed.data;
 
+    const lock = isLoginLocked(payload.email);
+    if (lock.locked) {
+      set.status = 429;
+      if (lock.retryAfterSec) set.headers["retry-after"] = String(lock.retryAfterSec);
+      return { error: "Too many failed login attempts. Try again later." };
+    }
+
     const tokenVersionColumnExists = await hasTokenVersionColumn();
     const [users] = await db.query<RowDataPacket[]>(
       tokenVersionColumnExists
         ? `SELECT id, email, password_hash, display_name, auth_provider, is_active, token_version
            FROM users
-           WHERE email = ? AND archived_at IS NULL
+           WHERE email = ? AND archived_at_UTC IS NULL
            LIMIT 1`
         : `SELECT id, email, password_hash, display_name, auth_provider, is_active
            FROM users
-           WHERE email = ? AND archived_at IS NULL
+           WHERE email = ? AND archived_at_UTC IS NULL
            LIMIT 1`,
       [payload.email]
     );
 
     if (!users.length || users[0].auth_provider !== "local" || !users[0].is_active) {
+      registerFailedLogin(payload.email);
       set.status = 401;
       return { error: "Invalid credentials" };
     }
 
     const valid = await Bun.password.verify(payload.password, String(users[0].password_hash));
     if (!valid) {
+      registerFailedLogin(payload.email);
       set.status = 401;
       return { error: "Invalid credentials" };
     }
 
+    clearFailedLogins(payload.email);
+
     const [roleRows] = await db.query<RowDataPacket[]>(
       `SELECT our.org_id, r.code AS role_code
        FROM org_user_roles our
-       JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
-       WHERE our.user_id = ? AND our.archived_at IS NULL`,
+       JOIN roles r ON r.id = our.role_id AND r.archived_at_UTC IS NULL
+       WHERE our.user_id = ? AND our.archived_at_UTC IS NULL`,
       [users[0].id]
     );
 
@@ -609,7 +703,7 @@ const app = new Elysia()
     } satisfies AuthPayload);
 
     await db.execute(
-      "UPDATE users SET last_login_at = UTC_TIMESTAMP(3) WHERE id = ?",
+      "UPDATE users SET last_login_at_UTC = UTC_TIMESTAMP(3) WHERE id = ?",
       [users[0].id]
     );
 
@@ -622,34 +716,46 @@ const app = new Elysia()
     }
     return auth;
   })
-  .get("/clients", async ({ auth, set }) => {
+  .get("/clients", async ({ auth, query, set }) => {
     if (!auth) {
       set.status = 401;
       return unauthorized;
     }
 
+    const { limit, offset } = parsePagination(query);
+
     if (isSystemAdmin(auth)) {
+      const [countRows] = await db.query<RowDataPacket[]>(
+        "SELECT COUNT(*) AS total FROM organizations WHERE archived_at_UTC IS NULL"
+      );
+      set.headers["x-total-count"] = String(Number(countRows[0]?.total ?? 0));
+
       const [rows] = await db.query<RowDataPacket[]>(
-        `SELECT id, name, created_at, updated_at
+        `SELECT id, name, created_at_UTC, updated_at_UTC
          FROM organizations
-         WHERE archived_at IS NULL
-         ORDER BY name ASC`
+         WHERE archived_at_UTC IS NULL
+         ORDER BY name ASC
+         LIMIT ? OFFSET ?`,
+        [limit, offset]
       );
       return rows;
     }
 
     const orgIds = getAccessibleOrgIds(auth);
     if (!orgIds.length) {
+      set.headers["x-total-count"] = "0";
       return [];
     }
 
     const placeholders = orgIds.map(() => "?").join(",");
+    set.headers["x-total-count"] = String(orgIds.length);
     const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT id, name, created_at, updated_at
+      `SELECT id, name, created_at_UTC, updated_at_UTC
        FROM organizations
-       WHERE archived_at IS NULL AND id IN (${placeholders})
-       ORDER BY name ASC`,
-      orgIds
+       WHERE archived_at_UTC IS NULL AND id IN (${placeholders})
+       ORDER BY name ASC
+       LIMIT ? OFFSET ?`,
+      [...orgIds, limit, offset]
     );
 
     return rows;
@@ -674,7 +780,7 @@ const app = new Elysia()
     const [existingRows] = await db.query<RowDataPacket[]>(
       `SELECT id
        FROM organizations
-       WHERE name = ? AND archived_at IS NULL
+       WHERE name = ? AND archived_at_UTC IS NULL
        LIMIT 1`,
       [clientName]
     );
@@ -684,29 +790,33 @@ const app = new Elysia()
       return { error: "Client already exists" };
     }
 
-    const [insertOrg] = await db.execute(
-      `INSERT INTO organizations (name)
-       VALUES (?)`,
-      [clientName]
-    );
-
-    const orgId = Number((insertOrg as any).insertId);
-
-    const [roleRows] = await db.query<RowDataPacket[]>(
-      `SELECT id
-       FROM roles
-       WHERE code = 'org_admin' AND archived_at IS NULL
-       LIMIT 1`
-    );
-
-    if (roleRows.length) {
-      await db.execute(
-        `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE created_at = org_user_roles.created_at`,
-        [orgId, auth.sub, Number(roleRows[0].id), auth.sub]
+    const orgId = await withTransaction(async (conn) => {
+      const [insertOrg] = await conn.execute(
+        `INSERT INTO organizations (name)
+         VALUES (?)`,
+        [clientName]
       );
-    }
+
+      const newOrgId = Number((insertOrg as any).insertId);
+
+      const [roleRows] = await conn.query<RowDataPacket[]>(
+        `SELECT id
+         FROM roles
+         WHERE code = 'org_admin' AND archived_at_UTC IS NULL
+         LIMIT 1`
+      );
+
+      if (roleRows.length) {
+        await conn.execute(
+          `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE created_at_UTC = org_user_roles.created_at_UTC`,
+          [newOrgId, auth.sub, Number(roleRows[0].id), auth.sub]
+        );
+      }
+
+      return newOrgId;
+    });
 
     set.status = 201;
     return { id: orgId, name: clientName };
@@ -721,13 +831,13 @@ const app = new Elysia()
     const [rows] = await db.query<RowDataPacket[]>(
       `SELECT code, description
        FROM roles
-       WHERE archived_at IS NULL
+       WHERE archived_at_UTC IS NULL
          ${includeSystemRole ? "" : "AND code <> 'system_admin'"}
        ORDER BY id ASC`
     );
     return rows;
   })
-  .get("/orgs/:orgId/users", async ({ auth, params, set }) => {
+  .get("/orgs/:orgId/users", async ({ auth, params, query, set }) => {
     const orgId = Number(params.orgId);
 
     if (!auth) {
@@ -739,24 +849,36 @@ const app = new Elysia()
       return forbidden;
     }
 
+    const { limit, offset } = parsePagination(query);
+
+    const [countRows] = await db.query<RowDataPacket[]>(
+      `SELECT COUNT(DISTINCT u.id) AS total
+       FROM users u
+       JOIN org_user_roles our ON our.user_id = u.id AND our.org_id = ?
+       WHERE u.archived_at_UTC IS NULL`,
+      [orgId]
+    );
+    set.headers["x-total-count"] = String(Number(countRows[0]?.total ?? 0));
+
     const [rows] = await db.query<RowDataPacket[]>(
       `SELECT
          u.id,
          u.email,
          u.display_name,
          u.is_active,
-         MAX(CASE WHEN our.archived_at IS NULL THEN 1 ELSE 0 END) AS has_active_org_roles,
+         MAX(CASE WHEN our.archived_at_UTC IS NULL THEN 1 ELSE 0 END) AS has_active_org_roles,
          GROUP_CONCAT(
-           DISTINCT CASE WHEN our.archived_at IS NULL AND r.archived_at IS NULL THEN r.code END
+           DISTINCT CASE WHEN our.archived_at_UTC IS NULL AND r.archived_at_UTC IS NULL THEN r.code END
            ORDER BY r.id SEPARATOR ','
          ) AS roles_csv
        FROM users u
        JOIN org_user_roles our ON our.user_id = u.id AND our.org_id = ?
        LEFT JOIN roles r ON r.id = our.role_id
-       WHERE u.archived_at IS NULL
+       WHERE u.archived_at_UTC IS NULL
        GROUP BY u.id, u.email, u.display_name, u.is_active
-       ORDER BY u.display_name ASC, u.email ASC`,
-      [orgId]
+       ORDER BY u.display_name ASC, u.email ASC
+       LIMIT ? OFFSET ?`,
+      [orgId, limit, offset]
     );
 
     return rows.map((row) => ({
@@ -793,7 +915,7 @@ const app = new Elysia()
     const [existingUsers] = await db.query<RowDataPacket[]>(
       `SELECT id
        FROM users
-       WHERE email = ? AND archived_at IS NULL
+       WHERE email = ? AND archived_at_UTC IS NULL
        LIMIT 1`,
       [payload.email]
     );
@@ -802,7 +924,7 @@ const app = new Elysia()
       `SELECT id, code
        FROM roles
        WHERE code IN (${payload.roles.map(() => "?").join(",")})
-         AND archived_at IS NULL`,
+         AND archived_at_UTC IS NULL`,
       payload.roles
     );
 
@@ -837,8 +959,8 @@ const app = new Elysia()
 
       await db.execute(
         `UPDATE users
-         SET display_name = ?, password_hash = ?, is_active = 1, updated_at = UTC_TIMESTAMP(3)
-         WHERE id = ? AND archived_at IS NULL`,
+         SET display_name = ?, password_hash = ?, is_active = 1, updated_at_UTC = UTC_TIMESTAMP(3)
+         WHERE id = ? AND archived_at_UTC IS NULL`,
         [payload.displayName, passwordHash, userId]
       );
       shouldRevokeUserSessions = true;
@@ -855,7 +977,7 @@ const app = new Elysia()
       await db.execute(
         `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
          VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
+         ON DUPLICATE KEY UPDATE archived_at_UTC = NULL, created_at_UTC = org_user_roles.created_at_UTC`,
         [orgId, userId, Number(role.id), auth.sub]
       );
     }
@@ -892,7 +1014,7 @@ const app = new Elysia()
     }
 
     const [userRows] = await db.query<RowDataPacket[]>(
-      `SELECT id FROM users WHERE id = ? AND archived_at IS NULL LIMIT 1`,
+      `SELECT id FROM users WHERE id = ? AND archived_at_UTC IS NULL LIMIT 1`,
       [userId]
     );
     if (!userRows.length) {
@@ -903,10 +1025,10 @@ const app = new Elysia()
     const [currentRoleRows] = await db.query<RowDataPacket[]>(
       `SELECT r.code
        FROM org_user_roles our
-       JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
+       JOIN roles r ON r.id = our.role_id AND r.archived_at_UTC IS NULL
        WHERE our.org_id = ?
          AND our.user_id = ?
-         AND our.archived_at IS NULL
+         AND our.archived_at_UTC IS NULL
        ORDER BY r.code ASC`,
       [orgId, userId]
     );
@@ -915,10 +1037,10 @@ const app = new Elysia()
     if (roleCodesRequested.length === 0) {
       const [archiveResult] = await db.execute(
         `UPDATE org_user_roles
-         SET archived_at = UTC_TIMESTAMP(3)
+         SET archived_at_UTC = UTC_TIMESTAMP(3)
          WHERE org_id = ?
            AND user_id = ?
-           AND archived_at IS NULL`,
+           AND archived_at_UTC IS NULL`,
         [orgId, userId]
       );
 
@@ -942,7 +1064,7 @@ const app = new Elysia()
       `SELECT id, code
        FROM roles
        WHERE code IN (${roleCodesRequested.map(() => "?").join(",")})
-         AND archived_at IS NULL`,
+         AND archived_at_UTC IS NULL`,
       roleCodesRequested
     );
 
@@ -957,20 +1079,20 @@ const app = new Elysia()
     await db.execute(
       `UPDATE org_user_roles our
        JOIN roles r ON r.id = our.role_id
-       SET our.archived_at = UTC_TIMESTAMP(3)
+       SET our.archived_at_UTC = UTC_TIMESTAMP(3)
        WHERE our.org_id = ?
          AND our.user_id = ?
-         AND our.archived_at IS NULL
-         AND r.archived_at IS NULL
+         AND our.archived_at_UTC IS NULL
+         AND r.archived_at_UTC IS NULL
          AND r.code NOT IN (${placeholders})`,
       [orgId, userId, ...roleCodesRequested]
     );
 
     for (const role of roleRows) {
       await db.execute(
-        `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by, archived_at)
+        `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by, archived_at_UTC)
          VALUES (?, ?, ?, ?, NULL)
-         ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
+         ON DUPLICATE KEY UPDATE archived_at_UTC = NULL, created_at_UTC = org_user_roles.created_at_UTC`,
         [orgId, userId, Number(role.id), auth.sub]
       );
     }
@@ -982,7 +1104,7 @@ const app = new Elysia()
 
     return { userId, roles: foundCodes, archivedInOrg: false };
   })
-  .get("/orgs/:orgId/audits", async ({ auth, params, set }) => {
+  .get("/orgs/:orgId/audits", async ({ auth, params, query, set }) => {
     const orgId = Number(params.orgId);
     if (!auth) {
       set.status = 401;
@@ -993,12 +1115,21 @@ const app = new Elysia()
       return forbidden;
     }
 
-    const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT id, org_id, name, status, audit_date, created_at, updated_at
-       FROM audits
-       WHERE org_id = ? AND archived_at IS NULL
-       ORDER BY audit_date DESC, id DESC`,
+    const { limit, offset } = parsePagination(query);
+
+    const [countRows] = await db.query<RowDataPacket[]>(
+      "SELECT COUNT(*) AS total FROM audits WHERE org_id = ? AND archived_at_UTC IS NULL",
       [orgId]
+    );
+    set.headers["x-total-count"] = String(Number(countRows[0]?.total ?? 0));
+
+    const [rows] = await db.query<RowDataPacket[]>(
+      `SELECT id, org_id, name, status, audit_date, created_at_UTC, updated_at_UTC
+       FROM audits
+       WHERE org_id = ? AND archived_at_UTC IS NULL
+       ORDER BY audit_date DESC, id DESC
+       LIMIT ? OFFSET ?`,
+      [orgId, limit, offset]
     );
 
     return rows;
@@ -1021,41 +1152,45 @@ const app = new Elysia()
     }
     const payload = parsed.data;
 
-    const [result] = await db.execute(
-      `INSERT INTO audits (org_id, name, audit_date, status, created_by)
-       VALUES (?, ?, ?, 'draft', ?)`,
-      [orgId, payload.name, payload.auditDate, auth.sub]
-    );
-
-    const auditId = Number((result as any).insertId);
-
-    const [scopeRows] = await db.query<RowDataPacket[]>(
-      "SELECT id FROM scope_options WHERE code = 'IN_SCOPE' AND archived_at IS NULL LIMIT 1"
-    );
-    const inScopeId = scopeRows.length ? Number(scopeRows[0].id) : null;
-
-    if (inScopeId) {
-      await db.execute(
-         `INSERT INTO audit_scope_targets (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
-          SELECT ?, p.id, ?, NULL, ?, ?
-          FROM processes p
-          WHERE p.archived_at IS NULL`,
-        [auditId, payload.certGoalLevel, inScopeId, auth.sub]
+    const auditId = await withTransaction(async (conn) => {
+      const [result] = await conn.execute(
+        `INSERT INTO audits (org_id, name, audit_date, status, created_by)
+         VALUES (?, ?, ?, 'draft', ?)`,
+        [orgId, payload.name, payload.auditDate, auth.sub]
       );
-    }
 
-    const [selectScoreRows] = await db.query<RowDataPacket[]>(
-      "SELECT id FROM capability_scores WHERE label = 'Select …' AND archived_at IS NULL LIMIT 1"
-    );
-    const selectScoreId = selectScoreRows.length ? Number(selectScoreRows[0].id) : null;
+      const newAuditId = Number((result as any).insertId);
 
-    await db.execute(
-      `INSERT INTO audit_assessments (audit_id, requirement_id, capability_score_id, updated_by)
-       SELECT ?, r.id, ?, ?
-       FROM requirements r
-       WHERE r.archived_at IS NULL`,
-      [auditId, selectScoreId, auth.sub]
-    );
+      const [scopeRows] = await conn.query<RowDataPacket[]>(
+        "SELECT id FROM scope_options WHERE code = 'IN_SCOPE' AND archived_at_UTC IS NULL LIMIT 1"
+      );
+      const inScopeId = scopeRows.length ? Number(scopeRows[0].id) : null;
+
+      if (inScopeId) {
+        await conn.execute(
+           `INSERT INTO audit_scope_targets (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
+            SELECT ?, p.id, ?, NULL, ?, ?
+            FROM processes p
+            WHERE p.archived_at_UTC IS NULL`,
+          [newAuditId, payload.certGoalLevel, inScopeId, auth.sub]
+        );
+      }
+
+      const [selectScoreRows] = await conn.query<RowDataPacket[]>(
+        "SELECT id FROM capability_scores WHERE label = 'Select …' AND archived_at_UTC IS NULL LIMIT 1"
+      );
+      const selectScoreId = selectScoreRows.length ? Number(selectScoreRows[0].id) : null;
+
+      await conn.execute(
+        `INSERT INTO audit_assessments (audit_id, requirement_id, capability_score_id, updated_by)
+         SELECT ?, r.id, ?, ?
+         FROM requirements r
+         WHERE r.archived_at_UTC IS NULL`,
+        [newAuditId, selectScoreId, auth.sub]
+      );
+
+      return newAuditId;
+    });
 
     set.status = 201;
     return { id: auditId };
@@ -1098,8 +1233,8 @@ const app = new Elysia()
 
     await db.execute(
       `UPDATE audits
-       SET status = ?, completed_at = ${completedAt}, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
-       WHERE id = ? AND archived_at IS NULL`,
+       SET status = ?, completed_at_UTC = ${completedAt}, updated_by = ?, updated_at_UTC = UTC_TIMESTAMP(3)
+       WHERE id = ? AND archived_at_UTC IS NULL`,
       [payload.status, auth.sub, auditId]
     );
 
@@ -1151,42 +1286,64 @@ const app = new Elysia()
     }
 
     const [processRows] = await db.query<RowDataPacket[]>(
-      "SELECT id, code FROM processes WHERE archived_at IS NULL"
+      "SELECT id, code FROM processes WHERE archived_at_UTC IS NULL"
     );
     const processIdByCode = new Map<string, number>();
     for (const row of processRows) processIdByCode.set(String(row.code), Number(row.id));
 
     const [scopeRows] = await db.query<RowDataPacket[]>(
-      "SELECT id, code FROM scope_options WHERE archived_at IS NULL"
+      "SELECT id, code FROM scope_options WHERE archived_at_UTC IS NULL"
     );
     const scopeIdByCode = new Map<string, number>();
     for (const row of scopeRows) scopeIdByCode.set(String(row.code), Number(row.id));
 
-    for (const item of payload.items) {
-      const processId = processIdByCode.get(item.processCode);
-      const scopeOptionId = scopeIdByCode.get(item.scopeCode);
-      if (!processId || !scopeOptionId) continue;
+    const [levelRows] = await db.query<RowDataPacket[]>("SELECT level FROM target_levels");
+    const validLevels = new Set<number>(levelRows.map((row) => Number(row.level)));
 
-      await db.execute(
-        `INSERT INTO audit_scope_targets
-           (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           cert_goal_level = VALUES(cert_goal_level),
-           custom_goal_level = VALUES(custom_goal_level),
-           scope_option_id = VALUES(scope_option_id),
-           updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
-        [
-          auditId,
-          processId,
-          Number(item.certGoalLevel),
-          item.customGoalLevel ?? null,
-          scopeOptionId,
-          auth.sub
-        ]
-      );
+    // Validate goal levels up front so an invalid value returns a 400 instead of
+    // surfacing a raw foreign-key error, and so the batch is rejected atomically.
+    for (const item of payload.items) {
+      if (!validLevels.has(Number(item.certGoalLevel))) {
+        set.status = 400;
+        return { error: `Invalid certGoalLevel: ${item.certGoalLevel}` };
+      }
+      if (
+        item.customGoalLevel !== null &&
+        item.customGoalLevel !== undefined &&
+        !validLevels.has(Number(item.customGoalLevel))
+      ) {
+        set.status = 400;
+        return { error: `Invalid customGoalLevel: ${item.customGoalLevel}` };
+      }
     }
+
+    await withTransaction(async (conn) => {
+      for (const item of payload.items) {
+        const processId = processIdByCode.get(item.processCode);
+        const scopeOptionId = scopeIdByCode.get(item.scopeCode);
+        if (!processId || !scopeOptionId) continue;
+
+        await conn.execute(
+          `INSERT INTO audit_scope_targets
+             (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             cert_goal_level = VALUES(cert_goal_level),
+             custom_goal_level = VALUES(custom_goal_level),
+             scope_option_id = VALUES(scope_option_id),
+             updated_by = VALUES(updated_by),
+             updated_at_UTC = UTC_TIMESTAMP(3)`,
+          [
+            auditId,
+            processId,
+            Number(item.certGoalLevel),
+            item.customGoalLevel ?? null,
+            scopeOptionId,
+            auth.sub
+          ]
+        );
+      }
+    });
 
     return { updated: payload.items.length };
   })
@@ -1223,13 +1380,13 @@ const app = new Elysia()
     }
 
     const [reqRows] = await db.query<RowDataPacket[]>(
-      "SELECT id, code FROM requirements WHERE archived_at IS NULL"
+      "SELECT id, code FROM requirements WHERE archived_at_UTC IS NULL"
     );
     const requirementIdByCode = new Map<string, number>();
     for (const row of reqRows) requirementIdByCode.set(String(row.code), Number(row.id));
 
     const [scoreRows] = await db.query<RowDataPacket[]>(
-      "SELECT id, label FROM capability_scores WHERE archived_at IS NULL"
+      "SELECT id, label FROM capability_scores WHERE archived_at_UTC IS NULL"
     );
     const scoreIdByLabel = new Map<string, number>();
     for (const row of scoreRows) scoreIdByLabel.set(String(row.label), Number(row.id));
@@ -1244,7 +1401,7 @@ const app = new Elysia()
       const [existingRows] = await db.query<RowDataPacket[]>(
         `SELECT id, capability_score_id, comment_text, evidence_text
          FROM audit_assessments
-         WHERE audit_id = ? AND requirement_id = ? AND archived_at IS NULL
+         WHERE audit_id = ? AND requirement_id = ? AND archived_at_UTC IS NULL
          LIMIT 1`,
         [auditId, requirementId]
       );
@@ -1283,7 +1440,7 @@ const app = new Elysia()
         const existing = existingRows[0];
         await db.execute(
           `UPDATE audit_assessments
-           SET capability_score_id = ?, comment_text = ?, evidence_text = ?, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
+           SET capability_score_id = ?, comment_text = ?, evidence_text = ?, updated_by = ?, updated_at_UTC = UTC_TIMESTAMP(3)
            WHERE id = ?`,
           [scoreId, item.commentText ?? null, item.evidenceText ?? null, auth.sub, existing.id]
         );
@@ -1352,8 +1509,8 @@ const app = new Elysia()
     const [assessmentRows] = await db.query<RowDataPacket[]>(
       `SELECT aa.id, a.id AS audit_id, a.org_id, a.status AS audit_status
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
-       WHERE aa.id = ? AND aa.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_at_UTC IS NULL
+       WHERE aa.id = ? AND aa.archived_at_UTC IS NULL
        LIMIT 1`,
       [assessmentId]
     );
@@ -1425,7 +1582,7 @@ const app = new Elysia()
     }
 
     const [fields] = await db.query<RowDataPacket[]>(
-      "SELECT id, field_key FROM audit_detail_fields WHERE archived_at IS NULL"
+      "SELECT id, field_key FROM audit_detail_fields WHERE archived_at_UTC IS NULL"
     );
     const fieldIdByKey = new Map<string, number>();
     for (const row of fields) fieldIdByKey.set(String(row.field_key), Number(row.id));
@@ -1437,7 +1594,7 @@ const app = new Elysia()
       const [existingRows] = await db.query<RowDataPacket[]>(
         `SELECT id, response_text, note_text
          FROM audit_detail_responses
-         WHERE audit_id = ? AND field_id = ? AND archived_at IS NULL
+         WHERE audit_id = ? AND field_id = ? AND archived_at_UTC IS NULL
          LIMIT 1`,
         [auditId, fieldId]
       );
@@ -1460,7 +1617,7 @@ const app = new Elysia()
            response_text = VALUES(response_text),
            note_text = VALUES(note_text),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_at_UTC = UTC_TIMESTAMP(3)`,
         [auditId, fieldId, item.responseText ?? null, item.noteText ?? null, auth.sub]
       );
 
@@ -1503,7 +1660,7 @@ const app = new Elysia()
     const [existingRows] = await db.query<RowDataPacket[]>(
       `SELECT id, conclusion_text
        FROM audit_conclusions
-       WHERE audit_id = ? AND archived_at IS NULL
+       WHERE audit_id = ? AND archived_at_UTC IS NULL
        LIMIT 1`,
       [auditId]
     );
@@ -1514,7 +1671,7 @@ const app = new Elysia()
        ON DUPLICATE KEY UPDATE
          conclusion_text = VALUES(conclusion_text),
          updated_by = VALUES(updated_by),
-         updated_at = UTC_TIMESTAMP(3)`,
+         updated_at_UTC = UTC_TIMESTAMP(3)`,
       [auditId, payload.conclusionText ?? null, auth.sub]
     );
 
@@ -1559,13 +1716,13 @@ const app = new Elysia()
          adf.guidance_text,
          adr.response_text,
          adr.note_text,
-         adr.updated_at
+         adr.updated_at_UTC
        FROM audit_detail_fields adf
        LEFT JOIN audit_detail_responses adr
          ON adr.field_id = adf.id
          AND adr.audit_id = ?
-         AND adr.archived_at IS NULL
-       WHERE adf.archived_at IS NULL
+         AND adr.archived_at_UTC IS NULL
+       WHERE adf.archived_at_UTC IS NULL
        ORDER BY adf.sort_order`,
       [auditId]
     );
@@ -1591,16 +1748,16 @@ const app = new Elysia()
     }
 
     const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT conclusion_text, updated_at, updated_by
+      `SELECT conclusion_text, updated_at_UTC, updated_by
        FROM audit_conclusions
-       WHERE audit_id = ? AND archived_at IS NULL
+       WHERE audit_id = ? AND archived_at_UTC IS NULL
        LIMIT 1`,
       [auditId]
     );
 
     return rows.length ? rows[0] : { conclusion_text: null };
   })
-  .get("/audits/:auditId/workspace", async ({ auth, params, set }) => {
+  .get("/audits/:auditId/workspace", async ({ auth, params, query, set }) => {
     const auditId = Number(params.auditId);
 
     if (!auth) {
@@ -1621,8 +1778,8 @@ const app = new Elysia()
     const [auditRows] = await db.query<RowDataPacket[]>(
       `SELECT a.id, a.org_id, a.name, a.status, a.audit_date, o.name AS client_name
        FROM audits a
-       JOIN organizations o ON o.id = a.org_id AND o.archived_at IS NULL
-       WHERE a.id = ? AND a.archived_at IS NULL
+       JOIN organizations o ON o.id = a.org_id AND o.archived_at_UTC IS NULL
+       WHERE a.id = ? AND a.archived_at_UTC IS NULL
        LIMIT 1`,
       [auditId]
     );
@@ -1654,11 +1811,11 @@ const app = new Elysia()
        LEFT JOIN audit_scope_targets ast
          ON ast.process_id = p.id
          AND ast.audit_id = ?
-         AND ast.archived_at IS NULL
+         AND ast.archived_at_UTC IS NULL
        LEFT JOIN scope_options so
          ON so.id = ast.scope_option_id
-         AND so.archived_at IS NULL
-       WHERE p.archived_at IS NULL
+         AND so.archived_at_UTC IS NULL
+       WHERE p.archived_at_UTC IS NULL
        ORDER BY p.sort_order ASC`,
       [auditId]
     );
@@ -1681,12 +1838,12 @@ const app = new Elysia()
          cs.numeric_value AS score_numeric,
          aa.comment_text,
          aa.evidence_text,
-         aa.updated_at
+         aa.updated_at_UTC
        FROM audit_assessments aa
-       JOIN requirements r ON r.id = aa.requirement_id AND r.archived_at IS NULL
-       JOIN processes p ON p.id = r.process_id AND p.archived_at IS NULL
-       LEFT JOIN capability_scores cs ON cs.id = aa.capability_score_id AND cs.archived_at IS NULL
-       WHERE aa.audit_id = ? AND aa.archived_at IS NULL
+       JOIN requirements r ON r.id = aa.requirement_id AND r.archived_at_UTC IS NULL
+       JOIN processes p ON p.id = r.process_id AND p.archived_at_UTC IS NULL
+       LEFT JOIN capability_scores cs ON cs.id = aa.capability_score_id AND cs.archived_at_UTC IS NULL
+       WHERE aa.audit_id = ? AND aa.archived_at_UTC IS NULL
        ORDER BY p.sort_order ASC, r.sort_order ASC`,
       [auditId]
     );
@@ -1718,7 +1875,7 @@ const app = new Elysia()
         scoreNumeric: row.score_numeric,
         commentText: row.comment_text,
         evidenceText: row.evidence_text,
-        updatedAt: row.updated_at
+        updatedAt: row.updated_at_UTC
       });
     }
 
@@ -1730,21 +1887,21 @@ const app = new Elysia()
          adf.guidance_text,
          adr.response_text,
          adr.note_text,
-         adr.updated_at
+         adr.updated_at_UTC
        FROM audit_detail_fields adf
        LEFT JOIN audit_detail_responses adr
          ON adr.field_id = adf.id
          AND adr.audit_id = ?
-         AND adr.archived_at IS NULL
-       WHERE adf.archived_at IS NULL
+         AND adr.archived_at_UTC IS NULL
+       WHERE adf.archived_at_UTC IS NULL
        ORDER BY adf.sort_order ASC`,
       [auditId]
     );
 
     const [conclusionRows] = await db.query<RowDataPacket[]>(
-      `SELECT conclusion_text, updated_at
+      `SELECT conclusion_text, updated_at_UTC
        FROM audit_conclusions
-       WHERE audit_id = ? AND archived_at IS NULL
+       WHERE audit_id = ? AND archived_at_UTC IS NULL
        LIMIT 1`,
       [auditId]
     );
@@ -1752,24 +1909,25 @@ const app = new Elysia()
     const [scoreOptions] = await db.query<RowDataPacket[]>(
       `SELECT label, numeric_value, sort_order
        FROM capability_scores
-       WHERE archived_at IS NULL
+       WHERE archived_at_UTC IS NULL
        ORDER BY sort_order ASC`
     );
 
     const [targetLevels] = await db.query<RowDataPacket[]>(
       `SELECT level, label
        FROM target_levels
-       WHERE archived_at IS NULL
+       WHERE archived_at_UTC IS NULL
        ORDER BY level ASC`
     );
 
     const [scopeOptions] = await db.query<RowDataPacket[]>(
       `SELECT code, label
        FROM scope_options
-       WHERE archived_at IS NULL
+       WHERE archived_at_UTC IS NULL
        ORDER BY id ASC`
     );
 
+    const { limit: eventsLimit } = parsePagination(query, { defaultLimit: 100, maxLimit: 500 });
     const auditEvents = (await hasTable("audit_events"))
       ? (
           await db.query<RowDataPacket[]>(
@@ -1782,13 +1940,13 @@ const app = new Elysia()
                ae.new_value_json,
                ae.actor_user_id,
                u.display_name AS actor_name,
-               ae.created_at
+               ae.created_at_UTC
              FROM audit_events ae
              LEFT JOIN users u ON u.id = ae.actor_user_id
              WHERE ae.audit_id = ?
-             ORDER BY ae.created_at DESC, ae.id DESC
-             LIMIT 100`,
-            [auditId]
+             ORDER BY ae.created_at_UTC DESC, ae.id DESC
+             LIMIT ?`,
+            [auditId, eventsLimit]
           )
         )[0]
       : [];
@@ -1841,11 +1999,11 @@ const app = new Elysia()
          file_size_bytes,
          sha256_hex,
          is_current,
-         generated_at,
+         generated_at_UTC,
          generated_by
        FROM audit_pdf_exports
-       WHERE audit_id = ? AND archived_at IS NULL
-       ORDER BY generated_at DESC, id DESC`,
+       WHERE audit_id = ? AND archived_at_UTC IS NULL
+       ORDER BY generated_at_UTC DESC, id DESC`,
       [auditId]
     );
 
@@ -1949,8 +2107,8 @@ const app = new Elysia()
     const [auditRows] = await db.query<RowDataPacket[]>(
       `SELECT a.id, a.org_id, a.name, a.status, a.audit_date, o.name AS client_name
        FROM audits a
-       JOIN organizations o ON o.id = a.org_id AND o.archived_at IS NULL
-       WHERE a.id = ? AND a.archived_at IS NULL
+       JOIN organizations o ON o.id = a.org_id AND o.archived_at_UTC IS NULL
+       WHERE a.id = ? AND a.archived_at_UTC IS NULL
        LIMIT 1`,
       [auditId]
     );
@@ -1967,9 +2125,9 @@ const app = new Elysia()
        FROM audit_detail_responses adr
        JOIN audit_detail_fields adf ON adf.id = adr.field_id
        WHERE adf.field_key = 'lead_auditor_name'
-         AND adf.archived_at IS NULL
+         AND adf.archived_at_UTC IS NULL
          AND adr.audit_id = ?
-         AND adr.archived_at IS NULL
+         AND adr.archived_at_UTC IS NULL
        LIMIT 1`,
       [auditId]
     );
@@ -1977,8 +2135,8 @@ const app = new Elysia()
     const [scopeCounts] = await db.query<RowDataPacket[]>(
       `SELECT so.code, COUNT(*) AS cnt
        FROM audit_scope_targets ast
-       JOIN scope_options so ON so.id = ast.scope_option_id AND so.archived_at IS NULL
-       WHERE ast.audit_id = ? AND ast.archived_at IS NULL
+       JOIN scope_options so ON so.id = ast.scope_option_id AND so.archived_at_UTC IS NULL
+       WHERE ast.audit_id = ? AND ast.archived_at_UTC IS NULL
        GROUP BY so.code`,
       [auditId]
     );
@@ -2004,22 +2162,22 @@ const app = new Elysia()
          aa.comment_text,
          aa.evidence_text
        FROM requirements r
-       JOIN processes p ON p.id = r.process_id AND p.archived_at IS NULL
+       JOIN processes p ON p.id = r.process_id AND p.archived_at_UTC IS NULL
        LEFT JOIN audit_scope_targets ast
          ON ast.process_id = p.id
          AND ast.audit_id = ?
-         AND ast.archived_at IS NULL
+         AND ast.archived_at_UTC IS NULL
        LEFT JOIN scope_options so
          ON so.id = ast.scope_option_id
-         AND so.archived_at IS NULL
+         AND so.archived_at_UTC IS NULL
        LEFT JOIN audit_assessments aa
          ON aa.audit_id = ?
          AND aa.requirement_id = r.id
-         AND aa.archived_at IS NULL
+         AND aa.archived_at_UTC IS NULL
        LEFT JOIN capability_scores cs
          ON cs.id = aa.capability_score_id
-         AND cs.archived_at IS NULL
-       WHERE r.archived_at IS NULL
+         AND cs.archived_at_UTC IS NULL
+       WHERE r.archived_at_UTC IS NULL
        ORDER BY p.sort_order ASC, r.sort_order ASC`,
       [auditId, auditId]
     );
@@ -2076,22 +2234,28 @@ const app = new Elysia()
     const sha256Hex = createHash("sha256").update(pdfBytes).digest("hex");
     const fileSizeBytes = pdfBytes.byteLength;
 
-    await db.execute(
-      `UPDATE audit_pdf_exports
-       SET is_current = 0, updated_at = UTC_TIMESTAMP(3)
-       WHERE audit_id = ?
-         AND report_kind = 'FULL_ASSESSMENT_REPORT'
-         AND archived_at IS NULL
-         AND is_current = 1`,
-      [auditId]
-    );
+    // Demote the previous current export and insert the new one atomically so
+    // concurrent generations cannot violate uq_audit_pdf_exports_current_per_kind
+    // or leave more than one "current" row.
+    const insertResult = await withTransaction(async (conn) => {
+      await conn.execute(
+        `UPDATE audit_pdf_exports
+         SET is_current = 0, updated_at_UTC = UTC_TIMESTAMP(3)
+         WHERE audit_id = ?
+           AND report_kind = 'FULL_ASSESSMENT_REPORT'
+           AND archived_at_UTC IS NULL
+           AND is_current = 1`,
+        [auditId]
+      );
 
-    const [insertResult] = await db.execute(
-      `INSERT INTO audit_pdf_exports
-         (audit_id, org_id, report_kind, file_name, file_path, file_size_bytes, sha256_hex, is_current, generated_by)
-       VALUES (?, ?, 'FULL_ASSESSMENT_REPORT', ?, ?, ?, ?, 1, ?)`,
-      [auditId, Number(audit.org_id), fileName, relativePath, fileSizeBytes, sha256Hex, auth.sub]
-    );
+      const [result] = await conn.execute(
+        `INSERT INTO audit_pdf_exports
+           (audit_id, org_id, report_kind, file_name, file_path, file_size_bytes, sha256_hex, is_current, generated_by)
+         VALUES (?, ?, 'FULL_ASSESSMENT_REPORT', ?, ?, ?, ?, 1, ?)`,
+        [auditId, Number(audit.org_id), fileName, relativePath, fileSizeBytes, sha256Hex, auth.sub]
+      );
+      return result;
+    });
 
     set.status = 201;
     return {
@@ -2124,7 +2288,7 @@ const app = new Elysia()
     const [rows] = await db.query<RowDataPacket[]>(
       `SELECT file_name, file_path
        FROM audit_pdf_exports
-       WHERE id = ? AND audit_id = ? AND archived_at IS NULL
+       WHERE id = ? AND audit_id = ? AND archived_at_UTC IS NULL
        LIMIT 1`,
       [exportId, auditId]
     );
@@ -2137,8 +2301,17 @@ const app = new Elysia()
     const fileName = String(rows[0].file_name);
     const filePath = String(rows[0].file_path);
 
+    // Defense-in-depth: never read outside the exports directory even if the
+    // stored path is somehow tampered with.
+    const exportsRoot = resolve(config.exportsDir);
+    const absPath = resolve(exportsRoot, filePath);
+    if (absPath !== exportsRoot && !absPath.startsWith(exportsRoot + sep)) {
+      set.status = 400;
+      return { error: "Invalid export path" };
+    }
+
     try {
-      const fileBuffer = await readFileFs(join(config.exportsDir, filePath));
+      const fileBuffer = await readFileFs(absPath);
       return new Response(fileBuffer, {
         headers: {
           "content-type": "application/pdf",
@@ -2161,8 +2334,8 @@ const app = new Elysia()
     const [assessmentRows] = await db.query<RowDataPacket[]>(
       `SELECT aa.id, a.org_id
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
-       WHERE aa.id = ? AND aa.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_at_UTC IS NULL
+       WHERE aa.id = ? AND aa.archived_at_UTC IS NULL
        LIMIT 1`,
       [assessmentId]
     );
@@ -2178,18 +2351,18 @@ const app = new Elysia()
     }
 
     const [events] = await db.query<RowDataPacket[]>(
-      `SELECT id, event_type, old_value_json, new_value_json, actor_user_id, created_at
+      `SELECT id, event_type, old_value_json, new_value_json, actor_user_id, created_at_UTC
        FROM assessment_events
        WHERE audit_assessment_id = ?
-       ORDER BY created_at ASC, id ASC`,
+       ORDER BY created_at_UTC ASC, id ASC`,
       [assessmentId]
     );
 
     const [notes] = await db.query<RowDataPacket[]>(
-      `SELECT id, note_text, created_by, created_at
+      `SELECT id, note_text, created_by, created_at_UTC
        FROM assessment_notes
-       WHERE audit_assessment_id = ? AND archived_at IS NULL
-       ORDER BY created_at ASC, id ASC`,
+       WHERE audit_assessment_id = ? AND archived_at_UTC IS NULL
+       ORDER BY created_at_UTC ASC, id ASC`,
       [assessmentId]
     );
 
@@ -2204,9 +2377,9 @@ const app = new Elysia()
     }
 
     const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at
+      `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at_UTC
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_at_UTC IS NULL
        WHERE aa.id = ?
        LIMIT 1`,
       [assessmentId]
@@ -2222,15 +2395,15 @@ const app = new Elysia()
       return forbidden;
     }
 
-    if (rows[0].archived_at) {
+    if (rows[0].archived_at_UTC) {
       set.status = 409;
       return { error: "Assessment is already archived" };
     }
 
     const [archiveResult] = await db.execute(
       `UPDATE audit_assessments
-       SET archived_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3), updated_by = ?
-       WHERE id = ? AND archived_at IS NULL`,
+       SET archived_at_UTC = UTC_TIMESTAMP(3), updated_at_UTC = UTC_TIMESTAMP(3), updated_by = ?
+       WHERE id = ? AND archived_at_UTC IS NULL`,
       [auth.sub, assessmentId]
     );
 
@@ -2267,9 +2440,9 @@ const app = new Elysia()
     }
 
     const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at
+      `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at_UTC
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_at_UTC IS NULL
        WHERE aa.id = ?
        LIMIT 1`,
       [assessmentId]
@@ -2285,15 +2458,15 @@ const app = new Elysia()
       return forbidden;
     }
 
-    if (!rows[0].archived_at) {
+    if (!rows[0].archived_at_UTC) {
       set.status = 409;
       return { error: "Assessment is already active" };
     }
 
     const [restoreResult] = await db.execute(
       `UPDATE audit_assessments
-       SET archived_at = NULL, updated_at = UTC_TIMESTAMP(3), updated_by = ?
-       WHERE id = ? AND archived_at IS NOT NULL`,
+       SET archived_at_UTC = NULL, updated_at_UTC = UTC_TIMESTAMP(3), updated_by = ?
+       WHERE id = ? AND archived_at_UTC IS NOT NULL`,
       [auth.sub, assessmentId]
     );
 

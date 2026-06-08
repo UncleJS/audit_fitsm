@@ -44,8 +44,8 @@ export default function ProcessPanel({
               <Badge variant="default">{decodeHtmlEntities(group.processAbbreviation)}</Badge>
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-slate-50">{decodeHtmlEntities(group.processName)}</h2>
-              <p className="mt-2 text-sm text-slate-400">Keep scope, targets, and requirement evidence grouped for this process only.</p>
+              <h2 className="text-xl font-semibold text-foreground">{decodeHtmlEntities(group.processName)}</h2>
+              <p className="mt-2 text-sm text-foreground">Keep scope, targets, and requirement evidence grouped for this process only.</p>
             </div>
           </div>
 
@@ -58,7 +58,7 @@ export default function ProcessPanel({
 
         <div className="px-5">
           <div className="grid gap-3 lg:grid-cols-3">
-            <label className="grid gap-2 text-sm font-medium text-slate-300">
+            <label className="grid gap-2 text-sm font-medium text-foreground">
               <span>Scope</span>
               <select value={scopeEdit.scopeCode} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, scopeCode: event.target.value } }))} onBlur={() => actions.requestScopeAutosave?.()}>
                 {(workspace.dropdowns?.scopeOptions ?? []).map((scope) => (
@@ -66,7 +66,7 @@ export default function ProcessPanel({
                 ))}
               </select>
             </label>
-            <label className="grid gap-2 text-sm font-medium text-slate-300">
+            <label className="grid gap-2 text-sm font-medium text-foreground">
               <span>Cert goal</span>
               <select value={scopeEdit.certGoalLevel} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, certGoalLevel: event.target.value } }))} onBlur={() => actions.requestScopeAutosave?.()}>
                 {(workspace.dropdowns?.targetLevels ?? []).map((level) => (
@@ -74,7 +74,7 @@ export default function ProcessPanel({
                 ))}
               </select>
             </label>
-            <label className="grid gap-2 text-sm font-medium text-slate-300">
+            <label className="grid gap-2 text-sm font-medium text-foreground">
               <span>Custom goal</span>
               <select value={scopeEdit.customGoalLevel} disabled={!permissions.canManageScopeTargets} onChange={(event) => scopeState.setScopeEdits((prev) => ({ ...prev, [processCode]: { ...scopeEdit, customGoalLevel: event.target.value } }))} onBlur={() => actions.requestScopeAutosave?.()}>
                 <option value="">(none)</option>
@@ -88,7 +88,7 @@ export default function ProcessPanel({
 
         {isOpen ? (
           <div className="space-y-2 px-5 pb-5">
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-500 lg:hidden">Swipe horizontally for full requirement columns</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-foreground lg:hidden">Swipe horizontally for full requirement columns</p>
             <div className="overflow-x-auto">
               <table className="data-table min-w-[1100px] table-fixed">
                 <thead>
@@ -118,8 +118,8 @@ export default function ProcessPanel({
                       <Fragment key={req.assessmentId}>
                         <tr>
                           <td className={isCompact ? "px-3 py-2" : undefined}>
-                            <div className="font-semibold text-slate-50">{req.requirementCode}</div>
-                            <div className={`mt-2 text-sm text-slate-300 ${isCompact ? "leading-5" : "leading-6"}`}>{decodeHtmlEntities(req.requirementText)}</div>
+                            <div className="font-semibold text-foreground">{req.requirementCode}</div>
+                            <div className={`mt-2 text-sm text-foreground ${isCompact ? "leading-5" : "leading-6"}`}>{decodeHtmlEntities(req.requirementText)}</div>
                           </td>
                           <td className={isCompact ? "px-3 py-2" : undefined}>
                             <select value={edit.scoreLabel} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setEdits((prev) => ({ ...prev, [assessmentKey]: { ...edit, scoreLabel: event.target.value } }))} onBlur={() => actions.requestAssessmentAutosave?.()}>
@@ -143,23 +143,23 @@ export default function ProcessPanel({
                             <td colSpan={5} className="bg-slate-950/85 px-4 py-4">
                               <div className="grid gap-4 lg:grid-cols-2">
                                 <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
-                                  <h4 className="text-sm font-semibold text-slate-50">Notes</h4>
+                                  <h4 className="text-sm font-semibold text-foreground">Notes</h4>
                                   <textarea rows={reqTextareaRows} className="mt-3" value={noteDraft} disabled={!permissions.canEdit} onChange={(event) => assessmentState.setNoteDraftByAssessment((prev) => ({ ...prev, [assessmentKey]: event.target.value }))} placeholder="Add note for this requirement" />
                                   <div className="mt-3">
                                     <Button size="sm" onClick={() => actions.addAssessmentNote(req.assessmentId)} disabled={!permissions.canEdit}>Add note</Button>
                                   </div>
-                                  <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-slate-300">
+                                  <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-foreground">
                                     {(history?.notes ?? []).map((note) => (
-                                      <li key={`n-${note.id}`}>{decodeHtmlEntities(note.note_text)} <span className="text-slate-500">({formatLocalTimestamp(note.created_at)})</span></li>
+                                      <li key={`n-${note.id}`}>{decodeHtmlEntities(note.note_text)} <span className="text-foreground">({formatLocalTimestamp(note.created_at_UTC)})</span></li>
                                     ))}
                                   </ul>
                                 </div>
                                 <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
-                                  <h4 className="text-sm font-semibold text-slate-50">Change history</h4>
-                                  {historyLoading ? <p className="mt-3 text-sm text-slate-400">Loading history…</p> : null}
-                                  <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-slate-300">
+                                  <h4 className="text-sm font-semibold text-foreground">Change history</h4>
+                                  {historyLoading ? <p className="mt-3 text-sm text-foreground">Loading history…</p> : null}
+                                  <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-foreground">
                                     {(history?.events ?? []).map((evt) => (
-                                      <li key={`e-${evt.id}`}><strong>{decodeHtmlEntities(evt.event_type)}</strong> <span className="text-slate-500">({formatLocalTimestamp(evt.created_at)})</span></li>
+                                      <li key={`e-${evt.id}`}><strong>{decodeHtmlEntities(evt.event_type)}</strong> <span className="text-foreground">({formatLocalTimestamp(evt.created_at_UTC)})</span></li>
                                     ))}
                                   </ul>
                                 </div>

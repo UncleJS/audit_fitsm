@@ -21,12 +21,12 @@ try {
   await conn.execute(
     `INSERT INTO organizations (name)
      VALUES (?)
-     ON DUPLICATE KEY UPDATE updated_at = UTC_TIMESTAMP(3)`,
+     ON DUPLICATE KEY UPDATE updated_at_UTC = UTC_TIMESTAMP(3)`,
     [orgName]
   );
 
   const [orgRows] = await conn.query(
-    "SELECT id FROM organizations WHERE name = ? AND archived_at IS NULL LIMIT 1",
+    "SELECT id FROM organizations WHERE name = ? AND archived_at_UTC IS NULL LIMIT 1",
     [orgName]
   );
   const orgId = Number(orgRows[0].id);
@@ -41,25 +41,25 @@ try {
      ON DUPLICATE KEY UPDATE
        password_hash = VALUES(password_hash),
        display_name = VALUES(display_name),
-       updated_at = UTC_TIMESTAMP(3)`,
+       updated_at_UTC = UTC_TIMESTAMP(3)`,
     [email, passwordHash, displayName]
   );
 
   const [userRows] = await conn.query(
-    "SELECT id FROM users WHERE email = ? AND archived_at IS NULL LIMIT 1",
+    "SELECT id FROM users WHERE email = ? AND archived_at_UTC IS NULL LIMIT 1",
     [email]
   );
   const userId = Number(userRows[0].id);
 
   const [roleRows] = await conn.query(
-    "SELECT id, code FROM roles WHERE code IN ('system_admin','org_admin') AND archived_at IS NULL"
+    "SELECT id, code FROM roles WHERE code IN ('system_admin','org_admin') AND archived_at_UTC IS NULL"
   );
 
   for (const role of roleRows as any[]) {
     await conn.execute(
       `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
        VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE created_at = org_user_roles.created_at`,
+       ON DUPLICATE KEY UPDATE created_at_UTC = org_user_roles.created_at_UTC`,
       [orgId, userId, role.id, userId]
     );
   }

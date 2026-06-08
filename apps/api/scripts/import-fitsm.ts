@@ -206,7 +206,7 @@ const main = async () => {
 
   try {
     const [orgRows] = await connection.query(
-      "SELECT id FROM organizations WHERE id = ? AND archived_at IS NULL LIMIT 1",
+      "SELECT id FROM organizations WHERE id = ? AND archived_at_UTC IS NULL LIMIT 1",
       [orgId]
     );
     if (!Array.isArray(orgRows) || orgRows.length === 0) {
@@ -214,7 +214,7 @@ const main = async () => {
     }
 
     const [userRows] = await connection.query(
-      "SELECT id FROM users WHERE id = ? AND archived_at IS NULL LIMIT 1",
+      "SELECT id FROM users WHERE id = ? AND archived_at_UTC IS NULL LIMIT 1",
       [actorUserId]
     );
     if (!Array.isArray(userRows) || userRows.length === 0) {
@@ -231,7 +231,7 @@ const main = async () => {
            kind = VALUES(kind),
            sort_order = VALUES(sort_order),
            default_cert_goal_level = VALUES(default_cert_goal_level),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_at_UTC = UTC_TIMESTAMP(3)`,
         [
           processItem.code,
           processItem.abbreviation,
@@ -244,7 +244,7 @@ const main = async () => {
     }
 
     const [processRows] = await connection.query(
-      "SELECT id, code FROM processes WHERE archived_at IS NULL"
+      "SELECT id, code FROM processes WHERE archived_at_UTC IS NULL"
     );
     const processIdByCode = new Map<string, number>();
     for (const row of processRows as any[]) {
@@ -261,13 +261,13 @@ const main = async () => {
          ON DUPLICATE KEY UPDATE
            requirement_text = VALUES(requirement_text),
            sort_order = VALUES(sort_order),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_at_UTC = UTC_TIMESTAMP(3)`,
         [processId, requirement.code, requirement.requirementText, requirement.sortOrder]
       );
     }
 
     const [requirementRows] = await connection.query(
-      "SELECT id, code FROM requirements WHERE archived_at IS NULL"
+      "SELECT id, code FROM requirements WHERE archived_at_UTC IS NULL"
     );
     const requirementIdByCode = new Map<string, number>();
     for (const row of requirementRows as any[]) {
@@ -275,7 +275,7 @@ const main = async () => {
     }
 
     const [scoreRows] = await connection.query(
-      "SELECT id, label FROM capability_scores WHERE archived_at IS NULL"
+      "SELECT id, label FROM capability_scores WHERE archived_at_UTC IS NULL"
     );
     const scoreIdByLabel = new Map<string, number>();
     for (const row of scoreRows as any[]) {
@@ -298,7 +298,7 @@ const main = async () => {
            VALUES (?, ?, ?)
            ON DUPLICATE KEY UPDATE
              guidance_text = VALUES(guidance_text),
-             updated_at = UTC_TIMESTAMP(3)`,
+             updated_at_UTC = UTC_TIMESTAMP(3)`,
           [requirementId, scoreId, text]
         );
       }
@@ -312,7 +312,7 @@ const main = async () => {
     const auditId = Number((auditInsert as any).insertId);
 
     const [scopeRowsLookup] = await connection.query(
-      "SELECT id, code FROM scope_options WHERE archived_at IS NULL"
+      "SELECT id, code FROM scope_options WHERE archived_at_UTC IS NULL"
     );
     const scopeIdByCode = new Map<string, number>();
     for (const row of scopeRowsLookup as any[]) {
@@ -343,7 +343,7 @@ const main = async () => {
            custom_goal_level = VALUES(custom_goal_level),
            scope_option_id = VALUES(scope_option_id),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_at_UTC = UTC_TIMESTAMP(3)`,
         [
           auditId,
           processId,
@@ -375,13 +375,13 @@ const main = async () => {
            comment_text = VALUES(comment_text),
            evidence_text = VALUES(evidence_text),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_at_UTC = UTC_TIMESTAMP(3)`,
         [auditId, requirementId, scoreId, commentText, evidenceText, actorUserId]
       );
     }
 
     const [fieldRows] = await connection.query(
-      "SELECT id, field_key FROM audit_detail_fields WHERE archived_at IS NULL"
+      "SELECT id, field_key FROM audit_detail_fields WHERE archived_at_UTC IS NULL"
     );
     const fieldIdByKey = new Map<string, number>();
     for (const row of fieldRows as any[]) {
@@ -417,7 +417,7 @@ const main = async () => {
          ON DUPLICATE KEY UPDATE
            response_text = VALUES(response_text),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_at_UTC = UTC_TIMESTAMP(3)`,
         [auditId, fieldId, response || null, actorUserId]
       );
     }
@@ -434,7 +434,7 @@ const main = async () => {
        ON DUPLICATE KEY UPDATE
          conclusion_text = VALUES(conclusion_text),
          updated_by = VALUES(updated_by),
-         updated_at = UTC_TIMESTAMP(3)`,
+         updated_at_UTC = UTC_TIMESTAMP(3)`,
       [auditId, conclusionText, actorUserId]
     );
 

@@ -8,6 +8,7 @@ Base URL: `http://localhost:1261`
 
 ## Table of Contents
 
+- [Conventions](#conventions)
 - [Auth](#auth)
 - [Health and readiness](#health-and-readiness)
 - [OpenAPI and Swagger](#openapi-and-swagger)
@@ -20,6 +21,21 @@ Base URL: `http://localhost:1261`
 - [Audit details & conclusions](#audit-details--conclusions)
 - [Reporting](#reporting)
 - [License footer](#license-footer)
+
+## Conventions
+
+Pagination (list endpoints):
+
+- List endpoints accept `?limit=` and `?offset=` query params. Default `limit` is `50`, capped at `200`; `offset` defaults to `0`.
+- Total count for the (unpaginated) result set is returned in the `X-Total-Count` response header (exposed via CORS).
+- Applies to `GET /clients`, `GET /orgs/:orgId/users`, and `GET /orgs/:orgId/audits`. The workspace event feed (`GET /audits/:auditId/workspace`) accepts `?limit=` (default `100`, max `500`).
+
+Rate limiting:
+
+- A global per-IP limiter applies to all requests (`RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX`).
+- `POST /auth/login` additionally throttles per email: after `LOGIN_MAX_FAILED` (default 5) failures within `LOGIN_LOCKOUT_WINDOW_MS` (default 15 min) the account is temporarily locked, returning `429` with `Retry-After`.
+
+[Go to TOC](#table-of-contents)
 
 ## Auth
 

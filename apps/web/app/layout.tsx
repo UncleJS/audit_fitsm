@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               {children}
             </div>
           </div>
-          <footer className="border-t border-slate-800/80 px-4 py-8 text-center text-sm text-slate-400 sm:px-6 lg:px-8">
+          <footer className="border-t border-slate-800/80 px-4 py-8 text-center text-sm text-foreground sm:px-6 lg:px-8">
             <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
             <a href="https://img.shields.io" target="_blank" rel="noreferrer">
               <img
