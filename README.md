@@ -91,6 +91,7 @@ This project is Podman-only. Do not use Docker or rootful containers.
 - `docs/audit-workspace.md` - audit workspace user guide
 - `docs/development-runtime.md` - container-first development and rebuild workflow
 - `docs/api-surface.md` - route inventory and behavior notes
+- `docs/security-model.md` - cookie session, role reload, and local secret policy
 - `docs/integration-testing.md` - integration and readiness validation
 - `docs/ci-runbook.md` - CI troubleshooting
 - `docs/ui-date-formatting.md` - date and timestamp formatting policy
@@ -201,10 +202,15 @@ See `docs/development-runtime.md` for the full workflow.
 ## Authentication and authorization
 
 - `/login` and `/logout` are dedicated auth routes
-- protected routes redirect to `/login` when the session token is missing or invalid
-- the browser stores the JWT in `sessionStorage` under `audit_fitsm_token`
+- protected routes redirect to `/login` when the session is missing or invalid
+- the browser session is an httpOnly `SameSite=Strict` cookie; API clients may still use the JSON `accessToken` as a bearer token
+- cookie-authenticated writes send `x-audit-fitsm: 1`
+- roles are loaded from the database on each request
 - JWTs are short-lived and role/password changes revoke active sessions
 - non-system-admin users are scoped to a single client/org
+- local Quadlet defaults are allowed only when `ALLOW_INSECURE_DEFAULTS=1`
+
+See `docs/security-model.md`.
 
 [Go to TOC](#table-of-contents)
 

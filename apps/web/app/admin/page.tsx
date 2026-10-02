@@ -1,16 +1,14 @@
-// @ts-nocheck
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Settings2, Shield, Users } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import ClientsTab from "../components/admin/clients-tab";
 import UsersTab from "../components/admin/users-tab";
-import PageShell from "../components/layout/page-shell";
 import PageSection from "../components/layout/page-section";
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
+import PageShell from "../components/layout/page-shell";
 import { Card, CardContent } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { apiFetch, ensureSession, hasAdminRole, type MeResponse } from "../lib/api";
 import { decodeHtmlEntities } from "../lib/text-format";
 
 type ClientRow = { id: number; name: string };
@@ -24,16 +22,11 @@ type OrgUserRow = {
   roles: string[];
 };
 
-const apiUrlFromEnv = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
-const defaultApiUrl = apiUrlFromEnv || "http://127.0.0.1:1261";
-const demoToken = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "1" ? process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "" : "";
-
-const authHeaders = (token: string, json = false) => ({
-  ...(json ? { "Content-Type": "application/json" } : {}),
-  ...(token ? { Authorization: `Bearer ${token}` } : {})
-});
-
-const toUiError = (status: number, body: any, fallback: string): string => {
+const toUiError = (
+  status: number,
+  body: { error?: string; details?: { fieldErrors?: Record<string, unknown> } },
+  fallback: string,
+): string => {
   const raw = String(body?.error ?? "").toLowerCase();
   if (status === 409 && raw.includes("already scoped to another client")) {
     return "This user already belongs to another client. Only system admins can assign users across multiple clients.";
@@ -49,31 +42,11 @@ const toUiError = (status: number, body: any, fallback: string): string => {
   return String(body?.error ?? fallback);
 };
 
-const parseJwtPayload = (token: string): any | null => {
-  try {
-    const payloadPart = String(token || "").split(".")[1] || "";
-    const base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4 || 4)) % 4);
-    const json = typeof atob === "function" ? atob(padded) : Buffer.from(padded, "base64").toString("utf8");
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-};
-
-const hasAdminRoleFromToken = (token: string): boolean => {
-  const payload = parseJwtPayload(token);
-  const orgRoles = payload?.orgRoles;
-  if (!orgRoles || typeof orgRoles !== "object") return false;
-  return Object.values(orgRoles)
-    .flat()
-    .some((role) => role === "org_admin" || role === "system_admin");
-};
-
 export default function AdminPage() {
   const [mounted, setMounted] = useState(false);
-  const [apiUrl, setApiUrl] = useState(defaultApiUrl);
+  const [bootError, setBootError] = useState("");
   const [authToken, setAuthToken] = useState("");
+  const [me, setMe] = useState<MeResponse | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [newClientName, setNewClientName] = useState("");
@@ -91,7 +64,7 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
 
   const tokenMissing = useMemo(() => !authToken, [authToken]);
-  const hasAdminAccess = useMemo(() => hasAdminRoleFromToken(authToken), [authToken]);
+  const hasAdminAccess = useMemo(() => hasAdminRole(me), [me]);
   const messageVariant = useMemo<"info" | "success" | "warning" | "error">(() => {
     const text = String(message || "").toLowerCase();
     if (!text) return "info";
@@ -105,19 +78,13 @@ export default function AdminPage() {
   const roleGridCols = isRbacCompact ? "grid-cols-3" : "grid-cols-2";
 
   const loadClients = async () => {
-    const res = await fetch(`${apiUrl}/clients`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const res = await apiFetch(`/clients`, {
+      cache: "no-store",
     });
 
     if (!res.ok) {
-      if (res.status === 401 && typeof window !== "undefined") {
-        window.sessionStorage.removeItem("audit_fitsm_token");
-        setAuthToken("");
-        window.location.href = "/login";
-        return;
-      }
       setClients([]);
+      setMessage("Unable to load clients.");
       return;
     }
 
@@ -127,24 +94,24 @@ export default function AdminPage() {
   };
 
   const loadRoles = async () => {
-    const res = await fetch(`${apiUrl}/roles`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const res = await apiFetch(`/roles`, {
+      cache: "no-store",
     });
     if (!res.ok) {
       setRolesCatalog([]);
+      setMessage("Unable to load roles.");
       return;
     }
     setRolesCatalog((await res.json()) as RoleRow[]);
   };
 
   const loadOrgUsers = async (clientId: number) => {
-    const res = await fetch(`${apiUrl}/orgs/${clientId}/users`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const res = await apiFetch(`/orgs/${clientId}/users`, {
+      cache: "no-store",
     });
     if (!res.ok) {
       setOrgUsers([]);
+      setMessage("Unable to load users for this client.");
       return;
     }
 
@@ -156,23 +123,37 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!apiUrlFromEnv) {
-      setApiUrl(`${window.location.protocol}//${window.location.hostname}:1261`);
-    }
-    const storedToken = window.sessionStorage.getItem("audit_fitsm_token") || "";
-    const storedDensity = window.sessionStorage.getItem("audit_fitsm_rbac_density");
-    setAuthToken(storedToken || demoToken);
-    if (storedDensity === "compact" || storedDensity === "comfortable") setRbacDensity(storedDensity);
-    setMounted(true);
+    let cancelled = false;
+    void (async () => {
+      const storedDensity = window.sessionStorage.getItem("audit_fitsm_rbac_density");
+      if (storedDensity === "compact" || storedDensity === "comfortable") setRbacDensity(storedDensity);
+      try {
+        const session = await ensureSession();
+        if (cancelled) return;
+        if (!session) {
+          window.location.href = "/login";
+          return;
+        }
+        setMe(session);
+        setAuthToken("session");
+        setMounted(true);
+      } catch {
+        if (cancelled) return;
+        setBootError("Unable to reach the API. Administrative tools could not be loaded.");
+        setMounted(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || bootError) return;
     if (!authToken && typeof window !== "undefined") {
       window.location.href = "/login";
     }
-  }, [mounted, authToken]);
+  }, [mounted, authToken, bootError]);
 
   useEffect(() => {
     if (!authToken) {
@@ -204,6 +185,18 @@ export default function AdminPage() {
       <PageShell>
         <PageSection title="Admin workspace" eyebrow="Admin" description="Loading client and access controls.">
           <p className="text-sm text-slate-400">Preparing administrative tools…</p>
+        </PageSection>
+      </PageShell>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <PageShell>
+        <PageSection title="Admin workspace" eyebrow="Admin" description="Administrative tools could not be loaded.">
+          <p role="alert" className="text-sm text-rose-200">
+            {bootError}
+          </p>
         </PageSection>
       </PageShell>
     );
@@ -244,10 +237,9 @@ export default function AdminPage() {
 
     setIsCreatingUser(true);
     try {
-      const res = await fetch(`${apiUrl}/orgs/${selectedClientId}/users`, {
+      const res = await apiFetch(`/orgs/${selectedClientId}/users`, {
         method: "POST",
-        headers: authHeaders(authToken, true),
-        body: JSON.stringify({ email, password, displayName, roles: newUserRoles })
+        body: JSON.stringify({ email, password, displayName, roles: newUserRoles }),
       });
 
       if (!res.ok) {
@@ -273,14 +265,14 @@ export default function AdminPage() {
 
     const key = String(userId);
     const roles = roleEditsByUserId[key] ?? [];
-    if (roles.length === 0) return setMessage("At least one role is required. Use Archive in Client to remove all roles.");
+    if (roles.length === 0)
+      return setMessage("At least one role is required. Use Archive in Client to remove all roles.");
 
     setSavingRolesByUserId((prev) => ({ ...prev, [key]: true }));
     try {
-      const res = await fetch(`${apiUrl}/orgs/${selectedClientId}/users/${userId}/roles`, {
+      const res = await apiFetch(`/orgs/${selectedClientId}/users/${userId}/roles`, {
         method: "PUT",
-        headers: authHeaders(authToken, true),
-        body: JSON.stringify({ roles })
+        body: JSON.stringify({ roles }),
       });
 
       if (!res.ok) {
@@ -299,14 +291,15 @@ export default function AdminPage() {
   const archiveUserInClient = async (userId: number) => {
     setMessage("");
     if (!selectedClientId) return setMessage("Select a client first.");
+    if (!window.confirm("Archive this user in the selected client? Their roles in this client will be removed."))
+      return;
 
     const key = String(userId);
     setSavingRolesByUserId((prev) => ({ ...prev, [key]: true }));
     try {
-      const res = await fetch(`${apiUrl}/orgs/${selectedClientId}/users/${userId}/roles`, {
+      const res = await apiFetch(`/orgs/${selectedClientId}/users/${userId}/roles`, {
         method: "PUT",
-        headers: authHeaders(authToken, true),
-        body: JSON.stringify({ roles: [] })
+        body: JSON.stringify({ roles: [] }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -325,10 +318,9 @@ export default function AdminPage() {
     setMessage("");
     setIsCreatingClient(true);
     try {
-      const res = await fetch(`${apiUrl}/clients`, {
+      const res = await apiFetch(`/clients`, {
         method: "POST",
-        headers: authHeaders(authToken, true),
-        body: JSON.stringify({ name: newClientName })
+        body: JSON.stringify({ name: newClientName }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -350,7 +342,7 @@ export default function AdminPage() {
     info: "border-sky-500/25 bg-sky-500/10 text-sky-100",
     success: "border-emerald-500/25 bg-emerald-500/10 text-emerald-100",
     warning: "border-amber-500/25 bg-amber-500/10 text-amber-100",
-    error: "border-rose-500/25 bg-rose-500/10 text-rose-100"
+    error: "border-rose-500/25 bg-rose-500/10 text-rose-100",
   }[messageVariant];
 
   return (
@@ -363,7 +355,9 @@ export default function AdminPage() {
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="bg-slate-950/45">
             <CardContent className="flex items-center gap-4 p-4">
-              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Shield className="size-4" /></span>
+              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200">
+                <Shield className="size-4" />
+              </span>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Admin access</p>
                 <p className="mt-2 text-lg font-semibold text-slate-50">{hasAdminAccess ? "Granted" : "Checking"}</p>
@@ -372,7 +366,9 @@ export default function AdminPage() {
           </Card>
           <Card className="bg-slate-950/45">
             <CardContent className="flex items-center gap-4 p-4">
-              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Settings2 className="size-4" /></span>
+              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200">
+                <Settings2 className="size-4" />
+              </span>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Clients</p>
                 <p className="mt-2 text-lg font-semibold text-slate-50">{clients.length}</p>
@@ -381,16 +377,24 @@ export default function AdminPage() {
           </Card>
           <Card className="bg-slate-950/45">
             <CardContent className="flex items-center gap-4 p-4">
-              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><Users className="size-4" /></span>
+              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200">
+                <Users className="size-4" />
+              </span>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Users in selected client</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  Users in selected client
+                </p>
                 <p className="mt-2 text-lg font-semibold text-slate-50">{orgUsers.length}</p>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {message ? <div className={`rounded-2xl border px-4 py-3 text-sm font-medium ${messageTone}`}>{message}</div> : null}
+        {message ? (
+          <div role="status" className={`rounded-2xl border px-4 py-3 text-sm font-medium ${messageTone}`}>
+            {message}
+          </div>
+        ) : null}
       </PageSection>
 
       {!tokenMissing && hasAdminAccess ? (
@@ -406,12 +410,27 @@ export default function AdminPage() {
             </TabsList>
 
             <TabsContent value="clients">
-              <ClientsTab createClient={createClient} newClientName={newClientName} setNewClientName={setNewClientName} isCreatingClient={isCreatingClient} clients={clients} selectedClientId={selectedClientId} setSelectedClientId={setSelectedClientId} />
+              <ClientsTab
+                createClient={createClient}
+                newClientName={newClientName}
+                setNewClientName={setNewClientName}
+                isCreatingClient={isCreatingClient}
+                clients={clients}
+                selectedClientId={selectedClientId}
+                setSelectedClientId={setSelectedClientId}
+              />
             </TabsContent>
 
             <TabsContent value="users">
               <UsersTab
-                clientControls={{ clients, selectedClientId, setSelectedClientId, rbacDensity, updateRbacDensity, roleGridCols }}
+                clientControls={{
+                  clients,
+                  selectedClientId,
+                  setSelectedClientId,
+                  rbacDensity,
+                  updateRbacDensity,
+                  roleGridCols,
+                }}
                 createUserForm={{
                   onSubmit: createOrgUser,
                   email: newUserEmail,
@@ -424,7 +443,7 @@ export default function AdminPage() {
                   selectedRoles: newUserRoles,
                   setSelectedRoles: setNewUserRoles,
                   toggleRoleSelection,
-                  isCreating: isCreatingUser
+                  isCreating: isCreatingUser,
                 }}
                 userTable={{
                   orgUsers,
@@ -433,7 +452,7 @@ export default function AdminPage() {
                   saveUserRoles,
                   archiveUserInClient,
                   tokenMissing,
-                  setRoleEditsByUserId
+                  setRoleEditsByUserId,
                 }}
               />
             </TabsContent>

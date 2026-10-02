@@ -1,7 +1,6 @@
-// @ts-nocheck
 import { readFile } from "node:fs/promises";
-import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
+import JSZip from "jszip";
 import mysql from "mysql2/promise";
 import { config } from "../src/config";
 
@@ -17,7 +16,7 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   removeNSPrefix: true,
   attributeNamePrefix: "@_",
-  processEntities: false
+  processEntities: false,
 });
 
 const asArray = <T>(value: T | T[] | undefined): T[] => {
@@ -31,7 +30,10 @@ const textFromP = (pNode: unknown): string => {
   if (Array.isArray(pNode)) return pNode.map(textFromP).filter(Boolean).join("\n");
   if (typeof pNode === "object") {
     if ((pNode as any)["#text"]) return String((pNode as any)["#text"]).trim();
-    return Object.values(pNode as Record<string, unknown>).map(textFromP).filter(Boolean).join("\n");
+    return Object.values(pNode as Record<string, unknown>)
+      .map(textFromP)
+      .filter(Boolean)
+      .join("\n");
   }
   return "";
 };
@@ -115,7 +117,9 @@ const scopeCode = (label: string): string => {
 };
 
 const extractProcessCode = (processLabel: string): string => {
-  return String(processLabel ?? "").split(":")[0].trim();
+  return String(processLabel ?? "")
+    .split(":")[0]
+    .trim();
 };
 
 const toTargetLevel = (value: unknown, fallback = 2): number => {
@@ -134,14 +138,17 @@ const main = async () => {
   const conclusionsRows = sheets["7. Conclusions"] ?? [];
 
   const requirementRowRegex = /^(GR|PR)\d+\.\d+$/;
-  const processMap = new Map<string, {
-    code: string;
-    abbreviation: string;
-    name: string;
-    kind: "GR" | "PR";
-    defaultCertGoal: number;
-    sortOrder: number;
-  }>();
+  const processMap = new Map<
+    string,
+    {
+      code: string;
+      abbreviation: string;
+      name: string;
+      kind: "GR" | "PR";
+      defaultCertGoal: number;
+      sortOrder: number;
+    }
+  >();
   const requirements: Array<{
     processCode: string;
     code: string;
@@ -171,7 +178,7 @@ const main = async () => {
         name: processName,
         kind: processCode.startsWith("GR") ? "GR" : "PR",
         defaultCertGoal: toTargetLevel(certGoal, 2),
-        sortOrder
+        sortOrder,
       });
       processRequirementCount.set(processCode, 0);
     }
@@ -189,8 +196,8 @@ const main = async () => {
         "1": row[7] ?? "",
         "2": row[8] ?? "",
         "3": row[9] ?? "",
-        "4": row[10] ?? ""
-      }
+        "4": row[10] ?? "",
+      },
     });
   }
 
@@ -199,7 +206,7 @@ const main = async () => {
     port: config.db.port,
     user: config.db.user,
     password: config.db.password,
-    database: config.db.database
+    database: config.db.database,
   });
 
   await connection.beginTransaction();
@@ -207,16 +214,15 @@ const main = async () => {
   try {
     const [orgRows] = await connection.query(
       "SELECT id FROM organizations WHERE id = ? AND archived_at IS NULL LIMIT 1",
-      [orgId]
+      [orgId],
     );
     if (!Array.isArray(orgRows) || orgRows.length === 0) {
       throw new Error(`Organization ${orgId} does not exist`);
     }
 
-    const [userRows] = await connection.query(
-      "SELECT id FROM users WHERE id = ? AND archived_at IS NULL LIMIT 1",
-      [actorUserId]
-    );
+    const [userRows] = await connection.query("SELECT id FROM users WHERE id = ? AND archived_at IS NULL LIMIT 1", [
+      actorUserId,
+    ]);
     if (!Array.isArray(userRows) || userRows.length === 0) {
       throw new Error(`User ${actorUserId} does not exist`);
     }
@@ -238,14 +244,12 @@ const main = async () => {
           processItem.name,
           processItem.kind,
           processItem.sortOrder,
-          processItem.defaultCertGoal
-        ]
+          processItem.defaultCertGoal,
+        ],
       );
     }
 
-    const [processRows] = await connection.query(
-      "SELECT id, code FROM processes WHERE archived_at IS NULL"
-    );
+    const [processRows] = await connection.query("SELECT id, code FROM processes WHERE archived_at IS NULL");
     const processIdByCode = new Map<string, number>();
     for (const row of processRows as any[]) {
       processIdByCode.set(String(row.code), Number(row.id));
@@ -262,21 +266,17 @@ const main = async () => {
            requirement_text = VALUES(requirement_text),
            sort_order = VALUES(sort_order),
            updated_at = UTC_TIMESTAMP(3)`,
-        [processId, requirement.code, requirement.requirementText, requirement.sortOrder]
+        [processId, requirement.code, requirement.requirementText, requirement.sortOrder],
       );
     }
 
-    const [requirementRows] = await connection.query(
-      "SELECT id, code FROM requirements WHERE archived_at IS NULL"
-    );
+    const [requirementRows] = await connection.query("SELECT id, code FROM requirements WHERE archived_at IS NULL");
     const requirementIdByCode = new Map<string, number>();
     for (const row of requirementRows as any[]) {
       requirementIdByCode.set(String(row.code), Number(row.id));
     }
 
-    const [scoreRows] = await connection.query(
-      "SELECT id, label FROM capability_scores WHERE archived_at IS NULL"
-    );
+    const [scoreRows] = await connection.query("SELECT id, label FROM capability_scores WHERE archived_at IS NULL");
     const scoreIdByLabel = new Map<string, number>();
     for (const row of scoreRows as any[]) {
       scoreIdByLabel.set(String(row.label), Number(row.id));
@@ -299,7 +299,7 @@ const main = async () => {
            ON DUPLICATE KEY UPDATE
              guidance_text = VALUES(guidance_text),
              updated_at = UTC_TIMESTAMP(3)`,
-          [requirementId, scoreId, text]
+          [requirementId, scoreId, text],
         );
       }
     }
@@ -307,13 +307,11 @@ const main = async () => {
     const [auditInsert] = await connection.execute(
       `INSERT INTO audits (org_id, name, status, audit_date, created_by)
        VALUES (?, ?, 'draft', ?, ?)`,
-      [orgId, auditName, auditDate, actorUserId]
+      [orgId, auditName, auditDate, actorUserId],
     );
     const auditId = Number((auditInsert as any).insertId);
 
-    const [scopeRowsLookup] = await connection.query(
-      "SELECT id, code FROM scope_options WHERE archived_at IS NULL"
-    );
+    const [scopeRowsLookup] = await connection.query("SELECT id, code FROM scope_options WHERE archived_at IS NULL");
     const scopeIdByCode = new Map<string, number>();
     for (const row of scopeRowsLookup as any[]) {
       scopeIdByCode.set(String(row.code), Number(row.id));
@@ -344,14 +342,7 @@ const main = async () => {
            scope_option_id = VALUES(scope_option_id),
            updated_by = VALUES(updated_by),
            updated_at = UTC_TIMESTAMP(3)`,
-        [
-          auditId,
-          processId,
-          toTargetLevel(certGoal, 2),
-          customGoal,
-          scopeOptionId,
-          actorUserId
-        ]
+        [auditId, processId, toTargetLevel(certGoal, 2), customGoal, scopeOptionId, actorUserId],
       );
     }
 
@@ -376,12 +367,12 @@ const main = async () => {
            evidence_text = VALUES(evidence_text),
            updated_by = VALUES(updated_by),
            updated_at = UTC_TIMESTAMP(3)`,
-        [auditId, requirementId, scoreId, commentText, evidenceText, actorUserId]
+        [auditId, requirementId, scoreId, commentText, evidenceText, actorUserId],
       );
     }
 
     const [fieldRows] = await connection.query(
-      "SELECT id, field_key FROM audit_detail_fields WHERE archived_at IS NULL"
+      "SELECT id, field_key FROM audit_detail_fields WHERE archived_at IS NULL",
     );
     const fieldIdByKey = new Map<string, number>();
     for (const row of fieldRows as any[]) {
@@ -399,7 +390,7 @@ const main = async () => {
       "Audit scope": "audit_scope",
       "Audit locations": "audit_locations",
       "Audit times": "audit_times",
-      "Audit evidence language": "audit_evidence_language"
+      "Audit evidence language": "audit_evidence_language",
     };
 
     for (const row of detailRows) {
@@ -418,7 +409,7 @@ const main = async () => {
            response_text = VALUES(response_text),
            updated_by = VALUES(updated_by),
            updated_at = UTC_TIMESTAMP(3)`,
-        [auditId, fieldId, response || null, actorUserId]
+        [auditId, fieldId, response || null, actorUserId],
       );
     }
 
@@ -435,7 +426,7 @@ const main = async () => {
          conclusion_text = VALUES(conclusion_text),
          updated_by = VALUES(updated_by),
          updated_at = UTC_TIMESTAMP(3)`,
-      [auditId, conclusionText, actorUserId]
+      [auditId, conclusionText, actorUserId],
     );
 
     await connection.commit();
@@ -446,11 +437,11 @@ const main = async () => {
           auditId,
           importedProcesses: processMap.size,
           importedRequirements: requirements.length,
-          importedScopeTargets: scopeRows.length
+          importedScopeTargets: scopeRows.length,
         },
         null,
-        2
-      )
+        2,
+      ),
     );
   } catch (error) {
     await connection.rollback();

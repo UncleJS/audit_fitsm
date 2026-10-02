@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import JSZip from "jszip";
@@ -12,7 +11,11 @@ const required = (name: string, fallback?: string): string => {
 };
 
 const nowStamp = (): string =>
-  new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z").replace("T", "T");
+  new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z")
+    .replace("T", "T");
 
 const main = async () => {
   const dbHost = required("DB_HOST", "127.0.0.1");
@@ -44,12 +47,12 @@ const main = async () => {
       "-u",
       dbUser,
       `-p${dbPassword}`,
-      dbName
+      dbName,
     ],
     {
       stdout: "pipe",
-      stderr: "pipe"
-    }
+      stderr: "pipe",
+    },
   );
 
   if (dump.exitCode !== 0) {
@@ -68,17 +71,17 @@ const main = async () => {
         dbHost,
         dbPort,
         dbName,
-        tool: "audit-fitsm backup-db.ts"
+        tool: "audit-fitsm backup-db.ts",
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 
   const zipBytes = await zip.generateAsync({
     type: "uint8array",
     compression: "DEFLATE",
-    compressionOptions: { level: 9 }
+    compressionOptions: { level: 9 },
   });
 
   await writeFile(zipPath, zipBytes);
@@ -89,11 +92,11 @@ const main = async () => {
         ok: true,
         zipFile: zipPath,
         zipSizeBytes: zipBytes.byteLength,
-        sqlFileInsideZip: sqlFileName
+        sqlFileInsideZip: sqlFileName,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 };
 

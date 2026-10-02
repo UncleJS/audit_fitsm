@@ -6,7 +6,8 @@
     "dev": "next dev -p 1260",
     "build": "next build",
     "start": "next start -p 1260",
-    "test": "bun test app/lib/text-format.test.ts"
+    "test": "bun test app/lib/text-format.test.ts app/lib/date-format.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.14",

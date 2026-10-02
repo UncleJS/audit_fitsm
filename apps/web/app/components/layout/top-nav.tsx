@@ -1,14 +1,14 @@
 "use client";
 
+import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
 import { cn } from "../ui/cn";
 
 const navItems = [
   { href: "/clients", label: "Dashboard" },
   { href: "/admin", label: "Admin" },
-  { href: "/logout", label: "Logout" }
+  { href: "/logout", label: "Logout" },
 ];
 
 export default function TopNav() {
@@ -22,24 +22,28 @@ export default function TopNav() {
             <ShieldCheck className="size-5" />
           </span>
           <span>
-            <strong className="block text-sm font-semibold tracking-[0.18em] text-sky-200 uppercase">Audit FitSM</strong>
+            <strong className="block text-sm font-semibold tracking-[0.18em] text-sky-200 uppercase">
+              Audit FitSM
+            </strong>
             <span className="block text-xs text-slate-400">Assessment workspace</span>
           </span>
         </Link>
         <nav aria-label="Primary" className="flex flex-wrap items-center gap-2">
           {navItems.map((item) => {
-            const active = item.href === "/clients"
-              ? pathname === "/" || pathname === "/clients" || pathname?.startsWith("/audits/")
-              : pathname === item.href;
+            const active =
+              item.href === "/clients"
+                ? pathname === "/" || pathname === "/clients" || pathname?.startsWith("/audits/")
+                : pathname === item.href;
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   "rounded-xl border px-3 py-2 text-sm font-medium transition",
                   active
                     ? "border-sky-400/60 bg-sky-500/10 text-sky-100"
-                    : "border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-600 hover:text-slate-100"
+                    : "border-slate-800 bg-slate-950/60 text-slate-300 hover:border-slate-600 hover:text-slate-100",
                 )}
               >
                 {item.label}

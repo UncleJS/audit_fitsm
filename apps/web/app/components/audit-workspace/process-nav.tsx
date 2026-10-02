@@ -1,8 +1,15 @@
-// @ts-nocheck
 import { PanelLeft } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 
-function ProcessNavButtons({ processes, activeProcessCode, onJump, compact = false }) {
+type ProcessNavItem = { processCode: string; processAbbreviation?: string };
+type ProcessNavProps = {
+  processes: ProcessNavItem[];
+  activeProcessCode: string;
+  onJump: (processCode: string) => void;
+  compact?: boolean;
+};
+
+function ProcessNavButtons({ processes, activeProcessCode, onJump, compact = false }: ProcessNavProps) {
   return (
     <div className={compact ? "flex gap-2 overflow-x-auto" : "grid gap-2"}>
       {processes.map((group) => (
@@ -24,9 +31,9 @@ function ProcessNavButtons({ processes, activeProcessCode, onJump, compact = fal
   );
 }
 
-export function ProcessSidebarNav({ processes, activeProcessCode, onJump }) {
+export function ProcessSidebarNav({ processes, activeProcessCode, onJump }: ProcessNavProps) {
   return (
-    <aside className="hidden xl:block">
+    <aside aria-label="Processes" className="hidden xl:block">
       <Card className="sticky top-24 bg-slate-950/55">
         <CardContent className="space-y-4 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-50">
@@ -39,10 +46,13 @@ export function ProcessSidebarNav({ processes, activeProcessCode, onJump }) {
   );
 }
 
-export function ProcessMobileNav({ processes, activeProcessCode, onJump }) {
+export function ProcessMobileNav({ processes, activeProcessCode, onJump }: ProcessNavProps) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-800 bg-slate-950/95 p-3 backdrop-blur xl:hidden">
+    <nav
+      aria-label="Processes"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-800 bg-slate-950/95 p-3 backdrop-blur xl:hidden"
+    >
       <ProcessNavButtons processes={processes} activeProcessCode={activeProcessCode} onJump={onJump} compact />
-    </div>
+    </nav>
   );
 }

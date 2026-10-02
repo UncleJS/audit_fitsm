@@ -16,7 +16,15 @@
     "preflight:ports": "bash ./scripts/preflight-ports.sh",
     "inspect:ports": "bash ./scripts/ports.sh",
     "check:ui-date-inputs": "bash ./scripts/check-ui-date-inputs.sh",
+    "check:secrets": "bash ./scripts/check-secrets.sh",
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
+    "test:unit": "bun test apps/api/src apps/web/app/lib/date-format.test.ts apps/web/app/lib/text-format.test.ts",
     "health:readiness": "bash ./scripts/health-readiness.sh",
     "integration:test": "bash ./scripts/integration-test.sh"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "typescript": "5.8.3"
   }
 }

@@ -20,7 +20,7 @@ export function TabsTrigger({ className, ...props }: ComponentPropsWithoutRef<ty
     <TabsPrimitive.Trigger
       className={cn(
         "rounded-xl px-4 py-2 text-sm font-medium text-slate-300 transition data-[state=active]:bg-slate-800 data-[state=active]:text-slate-50",
-        className
+        className,
       )}
       {...props}
     />

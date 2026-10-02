@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, type PDFFont, rgb, StandardFonts } from "pdf-lib";
 
 type PdfAuditInput = {
   audit: {
@@ -29,7 +28,7 @@ type PdfAuditInput = {
   }>;
 };
 
-const wrapText = (text: string, maxWidth: number, font: any, size: number): string[] => {
+const wrapText = (text: string, maxWidth: number, font: PDFFont, size: number): string[] => {
   if (!text) return [""];
   const words = text.replace(/\s+/g, " ").trim().split(" ");
   const lines: string[] = [];
@@ -72,7 +71,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
       y,
       size: titleSize,
       font: fontBold,
-      color: rgb(0.08, 0.1, 0.22)
+      color: rgb(0.08, 0.1, 0.22),
     });
     y -= 40;
 
@@ -81,7 +80,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
       y,
       size: h1,
       font: fontBold,
-      color: rgb(0.12, 0.16, 0.35)
+      color: rgb(0.12, 0.16, 0.35),
     });
     y -= 28;
 
@@ -92,7 +91,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
       ["Audit date", input.audit.auditDate],
       ["Generated", input.audit.generatedAtIso],
       ["Lead auditor", input.audit.leadAuditorName || "Not specified"],
-      ["Scope summary", input.audit.scopeSummary]
+      ["Scope summary", input.audit.scopeSummary],
     ];
 
     for (const [label, value] of titleFields) {
@@ -101,7 +100,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
         y,
         size: h2,
         font: fontBold,
-        color: rgb(0.18, 0.2, 0.32)
+        color: rgb(0.18, 0.2, 0.32),
       });
 
       const wrapped = wrapText(value || "-", width - margin * 2 - 120, fontRegular, h2);
@@ -112,7 +111,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
           y: localY,
           size: h2,
           font: fontRegular,
-          color: rgb(0.1, 0.1, 0.1)
+          color: rgb(0.1, 0.1, 0.1),
         });
         localY -= 16;
       }
@@ -138,22 +137,19 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
     y,
     size: h1,
     font: fontBold,
-    color: rgb(0.08, 0.1, 0.22)
+    color: rgb(0.08, 0.1, 0.22),
   });
   y -= 26;
 
   for (const process of input.groupedProcesses) {
     ensureSpace(40);
-    page.drawText(
-      `${process.processCode} - ${process.processName} (${process.processAbbreviation})`,
-      {
-        x: margin,
-        y,
-        size: h2,
-        font: fontBold,
-        color: rgb(0.1, 0.16, 0.35)
-      }
-    );
+    page.drawText(`${process.processCode} - ${process.processName} (${process.processAbbreviation})`, {
+      x: margin,
+      y,
+      size: h2,
+      font: fontBold,
+      color: rgb(0.1, 0.16, 0.35),
+    });
     y -= 16;
 
     page.drawText(
@@ -163,8 +159,8 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
         y,
         size: body,
         font: fontRegular,
-        color: rgb(0.2, 0.2, 0.2)
-      }
+        color: rgb(0.2, 0.2, 0.2),
+      },
     );
     y -= 18;
 
@@ -182,7 +178,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
         y,
         size: body,
         font: fontBold,
-        color: rgb(0.09, 0.1, 0.18)
+        color: rgb(0.09, 0.1, 0.18),
       });
       y -= 12;
 
@@ -192,7 +188,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
           y,
           size: body,
           font: fontRegular,
-          color: rgb(0.1, 0.1, 0.1)
+          color: rgb(0.1, 0.1, 0.1),
         });
         y -= 12;
       }
@@ -203,7 +199,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
           y,
           size: body,
           font: fontRegular,
-          color: rgb(0.2, 0.2, 0.2)
+          color: rgb(0.2, 0.2, 0.2),
         });
         y -= 12;
       }
@@ -214,7 +210,7 @@ export const buildAuditPdfReport = async (input: PdfAuditInput): Promise<Uint8Ar
           y,
           size: body,
           font: fontRegular,
-          color: rgb(0.2, 0.2, 0.2)
+          color: rgb(0.2, 0.2, 0.2),
         });
         y -= 12;
       }

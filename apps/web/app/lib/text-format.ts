@@ -4,7 +4,7 @@ const ENTITY_MAP: Record<string, string> = {
   gt: ">",
   quot: '"',
   apos: "'",
-  nbsp: " "
+  nbsp: " ",
 };
 
 export const decodeHtmlEntities = (value: unknown): string => {

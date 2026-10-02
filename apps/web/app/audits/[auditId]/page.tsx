@@ -1,33 +1,29 @@
-// @ts-nocheck
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Download, FileText, History, Layers3, Save } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Download, FileText, History, Layers3, Save, Target } from "lucide-react";
-import ProcessPanel from "../../components/audit-workspace/process-panel";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ProcessMobileNav, ProcessSidebarNav } from "../../components/audit-workspace/process-nav";
-import PageShell from "../../components/layout/page-shell";
+import ProcessPanel from "../../components/audit-workspace/process-panel";
+import { SaveControls } from "../../components/audit-workspace/save-controls";
 import PageSection from "../../components/layout/page-section";
+import PageShell from "../../components/layout/page-shell";
 import { Badge, statusVariant } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
+import { apiFetch, ensureSession } from "../../lib/api";
 import { formatDateOnly, formatLocalTimestamp } from "../../lib/date-format";
 import { decodeHtmlEntities } from "../../lib/text-format";
+import { useUnsavedChangesWarning } from "./use-audit-workspace";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:1261";
-const demoToken = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "1" ? process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "" : "";
 const AUTOSAVE_DELAY_MS = 1500;
-
-const authHeaders = (token: string, json = false) => ({
-  ...(json ? { "Content-Type": "application/json" } : {}),
-  ...(token ? { Authorization: `Bearer ${token}` } : {})
-});
 
 export default function AuditWorkspacePage() {
   const params = useParams();
   const auditId = Number(params.auditId);
   const [mounted, setMounted] = useState(false);
+  const [bootError, setBootError] = useState("");
   const [authToken, setAuthToken] = useState("");
   const [workspace, setWorkspace] = useState<any>(null);
   const [scopeEdits, setScopeEdits] = useState<Record<string, any>>({});
@@ -48,35 +44,39 @@ export default function AuditWorkspacePage() {
   const [activeProcessCode, setActiveProcessCode] = useState("");
   const [message, setMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState("");
-  const [autosaveState, setAutosaveState] = useState<{ status: "idle" | "saving" | "saved" | "error"; section: string; detail: string }>({
+  const [autosaveState, setAutosaveState] = useState<{
+    status: "idle" | "saving" | "saved" | "error";
+    section: string;
+    detail: string;
+  }>({
     status: "idle",
     section: "",
-    detail: ""
+    detail: "",
   });
   const [autosaveRetryTick, setAutosaveRetryTick] = useState(0);
   const lastSavedSnapshotsRef = useRef<Record<string, string>>({
     scope: "",
     assessments: "",
     details: "",
-    conclusion: ""
+    conclusion: "",
   });
   const autosaveInFlightRef = useRef<Record<string, boolean>>({
     scope: false,
     assessments: false,
     details: false,
-    conclusion: false
+    conclusion: false,
   });
   const autosavePendingRef = useRef<Record<string, boolean>>({
     scope: false,
     assessments: false,
     details: false,
-    conclusion: false
+    conclusion: false,
   });
   const autosaveErrorsRef = useRef<Record<string, string>>({
     scope: "",
     assessments: "",
     details: "",
-    conclusion: ""
+    conclusion: "",
   });
   const hasLoadedWorkspaceRef = useRef(false);
 
@@ -86,7 +86,7 @@ export default function AuditWorkspacePage() {
         requirementCode: String(item.requirementCode ?? ""),
         scoreLabel: String(item.scoreLabel ?? "Select …"),
         commentText: String(item.commentText ?? ""),
-        evidenceText: String(item.evidenceText ?? "")
+        evidenceText: String(item.evidenceText ?? ""),
       }))
       .sort((left: any, right: any) => left.requirementCode.localeCompare(right.requirementCode));
 
@@ -101,7 +101,7 @@ export default function AuditWorkspacePage() {
     }
 
     const previousByRequirement = new Map<string, string>(
-      previousItems.map((item: any) => [String(item.requirementCode ?? ""), JSON.stringify(item)])
+      previousItems.map((item: any) => [String(item.requirementCode ?? ""), JSON.stringify(item)]),
     );
 
     return currentItems.filter((item: any) => previousByRequirement.get(item.requirementCode) !== JSON.stringify(item));
@@ -124,16 +124,13 @@ export default function AuditWorkspacePage() {
             processCode: String(item.processCode ?? ""),
             certGoalLevel: String(item.certGoalLevel ?? "2"),
             customGoalLevel: String(item.customGoalLevel ?? ""),
-            scopeCode: String(item.scopeCode ?? "IN_SCOPE")
+            scopeCode: String(item.scopeCode ?? "IN_SCOPE"),
           }))
-          .sort((left: any, right: any) => left.processCode.localeCompare(right.processCode))
+          .sort((left: any, right: any) => left.processCode.localeCompare(right.processCode)),
       ),
-    [scopeEdits]
+    [scopeEdits],
   );
-  const assessmentsSnapshot = useMemo(
-    () => JSON.stringify(normalizeAssessmentItems(edits)),
-    [edits]
-  );
+  const assessmentsSnapshot = useMemo(() => JSON.stringify(normalizeAssessmentItems(edits)), [edits]);
   const detailsSnapshot = useMemo(
     () =>
       JSON.stringify(
@@ -141,36 +138,31 @@ export default function AuditWorkspacePage() {
           .map((item: any) => ({
             fieldKey: String(item.fieldKey ?? ""),
             responseText: String(item.responseText ?? ""),
-            noteText: String(item.noteText ?? "")
+            noteText: String(item.noteText ?? ""),
           }))
-          .sort((left: any, right: any) => left.fieldKey.localeCompare(right.fieldKey))
+          .sort((left: any, right: any) => left.fieldKey.localeCompare(right.fieldKey)),
       ),
-    [detailEdits]
+    [detailEdits],
   );
   const conclusionSnapshot = useMemo(
     () => JSON.stringify({ conclusionText: String(conclusionEdit ?? "") }),
-    [conclusionEdit]
+    [conclusionEdit],
   );
-  const hasUnsavedChanges = !!workspace && (
-    scopeSnapshot !== lastSavedSnapshotsRef.current.scope ||
-    assessmentsSnapshot !== lastSavedSnapshotsRef.current.assessments ||
-    detailsSnapshot !== lastSavedSnapshotsRef.current.details ||
-    conclusionSnapshot !== lastSavedSnapshotsRef.current.conclusion
-  );
+  const hasUnsavedChanges =
+    !!workspace &&
+    (scopeSnapshot !== lastSavedSnapshotsRef.current.scope ||
+      assessmentsSnapshot !== lastSavedSnapshotsRef.current.assessments ||
+      detailsSnapshot !== lastSavedSnapshotsRef.current.details ||
+      conclusionSnapshot !== lastSavedSnapshotsRef.current.conclusion);
+
+  useUnsavedChangesWarning(hasUnsavedChanges);
 
   const loadWorkspace = async () => {
-    const res = await fetch(`${apiUrl}/audits/${auditId}/workspace`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const res = await apiFetch(`/audits/${auditId}/workspace`, {
+      cache: "no-store",
     });
 
     if (!res.ok) {
-      if (res.status === 401 && typeof window !== "undefined") {
-        window.sessionStorage.removeItem("audit_fitsm_token");
-        setAuthToken("");
-        window.location.href = "/login";
-        return;
-      }
       setWorkspace(null);
       hasLoadedWorkspaceRef.current = false;
       setMessage("Unable to load audit workspace.");
@@ -188,7 +180,7 @@ export default function AuditWorkspacePage() {
         processCode: group.processCode,
         certGoalLevel: group.certGoalLevel != null ? String(group.certGoalLevel) : "2",
         customGoalLevel: group.customGoalLevel != null ? String(group.customGoalLevel) : "",
-        scopeCode: group.scopeCode ?? "IN_SCOPE"
+        scopeCode: group.scopeCode ?? "IN_SCOPE",
       };
       nextOpenPanels[String(group.processCode)] = true;
     }
@@ -202,7 +194,7 @@ export default function AuditWorkspacePage() {
           requirementCode: req.requirementCode,
           scoreLabel: req.scoreLabel ?? "Select …",
           commentText: req.commentText ?? "",
-          evidenceText: req.evidenceText ?? ""
+          evidenceText: req.evidenceText ?? "",
         };
       }
     }
@@ -213,7 +205,7 @@ export default function AuditWorkspacePage() {
       nextDetails[String(detail.field_key)] = {
         fieldKey: detail.field_key,
         responseText: detail.response_text ?? "",
-        noteText: detail.note_text ?? ""
+        noteText: detail.note_text ?? "",
       };
     }
     setDetailEdits(nextDetails);
@@ -225,56 +217,69 @@ export default function AuditWorkspacePage() {
             processCode: String(item.processCode ?? ""),
             certGoalLevel: String(item.certGoalLevel ?? "2"),
             customGoalLevel: String(item.customGoalLevel ?? ""),
-            scopeCode: String(item.scopeCode ?? "IN_SCOPE")
+            scopeCode: String(item.scopeCode ?? "IN_SCOPE"),
           }))
-          .sort((left: any, right: any) => left.processCode.localeCompare(right.processCode))
+          .sort((left: any, right: any) => left.processCode.localeCompare(right.processCode)),
       ),
-      assessments: JSON.stringify(
-        normalizeAssessmentItems(nextEdits)
-      ),
+      assessments: JSON.stringify(normalizeAssessmentItems(nextEdits)),
       details: JSON.stringify(
         Object.values(nextDetails)
           .map((item: any) => ({
             fieldKey: String(item.fieldKey ?? ""),
             responseText: String(item.responseText ?? ""),
-            noteText: String(item.noteText ?? "")
+            noteText: String(item.noteText ?? ""),
           }))
-          .sort((left: any, right: any) => left.fieldKey.localeCompare(right.fieldKey))
+          .sort((left: any, right: any) => left.fieldKey.localeCompare(right.fieldKey)),
       ),
-      conclusion: JSON.stringify({ conclusionText: String(data.conclusion?.conclusion_text ?? "") })
+      conclusion: JSON.stringify({ conclusionText: String(data.conclusion?.conclusion_text ?? "") }),
     };
     autosavePendingRef.current = {
       scope: false,
       assessments: false,
       details: false,
-      conclusion: false
+      conclusion: false,
     };
     autosaveErrorsRef.current = {
       scope: "",
       assessments: "",
       details: "",
-      conclusion: ""
+      conclusion: "",
     };
     hasLoadedWorkspaceRef.current = true;
     setAutosaveState({ status: "idle", section: "", detail: "" });
     setLastSavedAt(String(data.audit?.updated_at ?? ""));
 
-    const exportsRes = await fetch(`${apiUrl}/audits/${auditId}/exports`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const exportsRes = await apiFetch(`/audits/${auditId}/exports`, {
+      cache: "no-store",
     });
     if (exportsRes.ok) {
       setPdfExports(await exportsRes.json());
     } else {
       setPdfExports([]);
+      setMessage("Unable to load stored exports.");
     }
   };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedToken = window.sessionStorage.getItem("audit_fitsm_token") || "";
+    let cancelled = false;
     const storedDensity = window.sessionStorage.getItem("audit_fitsm_workspace_density_by_process");
-    setAuthToken(storedToken || demoToken);
+    void (async () => {
+      try {
+        const session = await ensureSession();
+        if (cancelled) return;
+        if (!session) {
+          window.location.href = "/login";
+          return;
+        }
+        setAuthToken("session");
+        setMounted(true);
+      } catch {
+        if (cancelled) return;
+        setBootError("Unable to reach the API. This audit could not be loaded.");
+        setMounted(true);
+      }
+    })();
     if (storedDensity) {
       try {
         const parsed = JSON.parse(storedDensity);
@@ -285,15 +290,17 @@ export default function AuditWorkspacePage() {
         // ignore invalid persisted state
       }
     }
-    setMounted(true);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || bootError) return;
     if (!authToken && typeof window !== "undefined") {
       window.location.href = "/login";
     }
-  }, [mounted, authToken]);
+  }, [mounted, authToken, bootError]);
 
   useEffect(() => {
     if (auditId && authToken) {
@@ -315,10 +322,12 @@ export default function AuditWorkspacePage() {
           setActiveProcessCode(visible.target.dataset.processCode ?? "");
         }
       },
-      { rootMargin: "-20% 0px -60% 0px", threshold: [0.2, 0.4, 0.7] }
+      { rootMargin: "-20% 0px -60% 0px", threshold: [0.2, 0.4, 0.7] },
     );
 
-    sections.forEach((section) => observer.observe(section));
+    sections.forEach((section) => {
+      observer.observe(section);
+    });
     return () => observer.disconnect();
   }, [workspace?.groupedProcesses?.length]);
 
@@ -334,7 +343,9 @@ export default function AuditWorkspacePage() {
 
   const scrollToProcess = (processCode: string) => {
     if (typeof window !== "undefined") {
-      document.getElementById(`process-${String(processCode).toLowerCase()}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document
+        .getElementById(`process-${String(processCode).toLowerCase()}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
@@ -397,9 +408,8 @@ export default function AuditWorkspacePage() {
 
     setIsGeneratingPdf(true);
     try {
-      const res = await fetch(`${apiUrl}/audits/${auditId}/exports/pdf`, {
+      const res = await apiFetch(`/audits/${auditId}/exports/pdf`, {
         method: "POST",
-        headers: authHeaders(authToken, true)
       });
 
       if (!res.ok) {
@@ -425,9 +435,7 @@ export default function AuditWorkspacePage() {
 
     setDownloadingExportId(exportId);
     try {
-      const res = await fetch(`${apiUrl}/audits/${auditId}/exports/${exportId}/download`, {
-        headers: authHeaders(authToken)
-      });
+      const res = await apiFetch(`/audits/${auditId}/exports/${exportId}/download`);
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -459,9 +467,7 @@ export default function AuditWorkspacePage() {
 
     setDownloadingCsvKind(report);
     try {
-      const res = await fetch(`${apiUrl}/audits/${auditId}/exports/csv?report=${report}`, {
-        headers: authHeaders(authToken)
-      });
+      const res = await apiFetch(`/audits/${auditId}/exports/csv?report=${report}`);
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -491,10 +497,9 @@ export default function AuditWorkspacePage() {
       return;
     }
 
-    const res = await fetch(`${apiUrl}/audits/${auditId}/status`, {
+    const res = await apiFetch(`/audits/${auditId}/status`, {
       method: "PUT",
-      headers: authHeaders(authToken, true),
-      body: JSON.stringify({ status: statusEdit })
+      body: JSON.stringify({ status: statusEdit }),
     });
 
     if (!res.ok) {
@@ -525,13 +530,12 @@ export default function AuditWorkspacePage() {
       processCode: item.processCode,
       certGoalLevel: Number(item.certGoalLevel || 2),
       customGoalLevel: item.customGoalLevel ? Number(item.customGoalLevel) : null,
-      scopeCode: item.scopeCode === "OUT_OF_SCOPE" ? "OUT_OF_SCOPE" : "IN_SCOPE"
+      scopeCode: item.scopeCode === "OUT_OF_SCOPE" ? "OUT_OF_SCOPE" : "IN_SCOPE",
     }));
 
-    const res = await fetch(`${apiUrl}/audits/${auditId}/scope-targets`, {
+    const res = await apiFetch(`/audits/${auditId}/scope-targets`, {
       method: "PUT",
-      headers: authHeaders(authToken, true),
-      body: JSON.stringify({ items })
+      body: JSON.stringify({ items }),
     });
 
     if (!res.ok) {
@@ -569,7 +573,7 @@ export default function AuditWorkspacePage() {
         setMessage(
           isLockedForNonLead
             ? "Audit is completed and locked for non-lead roles."
-            : "You do not have permission to update assessments."
+            : "You do not have permission to update assessments.",
         );
       }
       return false;
@@ -581,10 +585,9 @@ export default function AuditWorkspacePage() {
       return true;
     }
 
-    const res = await fetch(`${apiUrl}/audits/${auditId}/assessments`, {
+    const res = await apiFetch(`/audits/${auditId}/assessments`, {
       method: "PUT",
-      headers: authHeaders(authToken, true),
-      body: JSON.stringify({ items })
+      body: JSON.stringify({ items }),
     });
 
     if (!res.ok) {
@@ -612,12 +615,12 @@ export default function AuditWorkspacePage() {
     setLoadingHistoryByAssessment((prev) => ({ ...prev, [key]: true }));
 
     try {
-      const res = await fetch(`${apiUrl}/assessments/${assessmentId}/history`, {
-        headers: authHeaders(authToken),
-        cache: "no-store"
+      const res = await apiFetch(`/assessments/${assessmentId}/history`, {
+        cache: "no-store",
       });
 
       if (!res.ok) {
+        setMessage("Unable to load requirement history.");
         return;
       }
 
@@ -651,15 +654,14 @@ export default function AuditWorkspacePage() {
       setMessage(
         isLockedForNonLead
           ? "Audit is completed and locked for non-lead roles."
-          : "You do not have permission to add notes."
+          : "You do not have permission to add notes.",
       );
       return;
     }
 
-    const res = await fetch(`${apiUrl}/assessments/${assessmentId}/notes`, {
+    const res = await apiFetch(`/assessments/${assessmentId}/notes`, {
       method: "POST",
-      headers: authHeaders(authToken, true),
-      body: JSON.stringify({ noteText })
+      body: JSON.stringify({ noteText }),
     });
 
     if (!res.ok) {
@@ -686,7 +688,7 @@ export default function AuditWorkspacePage() {
         setMessage(
           isLockedForNonLead
             ? "Audit is completed and locked for non-lead roles."
-            : "You do not have permission to update audit details."
+            : "You do not have permission to update audit details.",
         );
       }
       return false;
@@ -694,10 +696,9 @@ export default function AuditWorkspacePage() {
 
     const items = Object.values(detailEdits);
 
-    const res = await fetch(`${apiUrl}/audits/${auditId}/details`, {
+    const res = await apiFetch(`/audits/${auditId}/details`, {
       method: "PUT",
-      headers: authHeaders(authToken, true),
-      body: JSON.stringify({ items })
+      body: JSON.stringify({ items }),
     });
 
     if (!res.ok) {
@@ -733,10 +734,9 @@ export default function AuditWorkspacePage() {
       return false;
     }
 
-    const res = await fetch(`${apiUrl}/audits/${auditId}/conclusion`, {
+    const res = await apiFetch(`/audits/${auditId}/conclusion`, {
       method: "PUT",
-      headers: authHeaders(authToken, true),
-      body: JSON.stringify({ conclusionText: conclusionEdit })
+      body: JSON.stringify({ conclusionText: conclusionEdit }),
     });
 
     if (!res.ok) {
@@ -799,7 +799,7 @@ export default function AuditWorkspacePage() {
     section: "scope" | "assessments" | "details" | "conclusion",
     snapshot: string,
     saveAction: () => Promise<boolean>,
-    label: string
+    label: string,
   ) => {
     if (!workspace || !hasLoadedWorkspaceRef.current || snapshot === lastSavedSnapshotsRef.current[section]) {
       return;
@@ -828,7 +828,7 @@ export default function AuditWorkspacePage() {
       setAutosaveState({
         status: "error",
         section: label,
-        detail: autosaveErrorsRef.current[section] || `Autosave failed for ${label.toLowerCase()}.`
+        detail: autosaveErrorsRef.current[section] || `Autosave failed for ${label.toLowerCase()}.`,
       });
     }
 
@@ -847,7 +847,12 @@ export default function AuditWorkspacePage() {
         return;
       }
       if (section === "assessments") {
-        void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true, getChangedAssessmentItems()), "Assessments");
+        void runAutosaveSection(
+          "assessments",
+          assessmentsSnapshot,
+          () => saveAssessments(false, true, getChangedAssessmentItems()),
+          "Assessments",
+        );
         return;
       }
       if (section === "details") {
@@ -874,7 +879,12 @@ export default function AuditWorkspacePage() {
     if (assessmentsSnapshot === lastSavedSnapshotsRef.current.assessments) return;
 
     const timeout = window.setTimeout(() => {
-      void runAutosaveSection("assessments", assessmentsSnapshot, () => saveAssessments(false, true, getChangedAssessmentItems()), "Assessments");
+      void runAutosaveSection(
+        "assessments",
+        assessmentsSnapshot,
+        () => saveAssessments(false, true, getChangedAssessmentItems()),
+        "Assessments",
+      );
     }, AUTOSAVE_DELAY_MS);
 
     return () => window.clearTimeout(timeout);
@@ -902,19 +912,23 @@ export default function AuditWorkspacePage() {
     return () => window.clearTimeout(timeout);
   }, [mounted, workspace, authToken, canLeadEdit, conclusionSnapshot, autosaveRetryTick]);
 
-  const autosaveIndicatorTone = autosaveState.status === "error"
-    ? "border-rose-500/30 bg-rose-500/10 text-rose-100"
-    : autosaveState.status === "saving" || hasUnsavedChanges
-      ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
-      : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
-  const autosaveIndicatorText = autosaveState.status === "error"
-    ? autosaveState.detail || "Autosave failed."
-    : autosaveState.status === "saving"
-      ? autosaveState.detail || "Saving changes…"
-      : hasUnsavedChanges
-        ? `Unsaved changes — autosaving in ${Number(AUTOSAVE_DELAY_MS / 1000).toFixed(1)}s.`
-        : "All changes saved.";
-  const lastSavedText = lastSavedAt ? `Last saved ${formatLocalTimestamp(lastSavedAt)}` : "No saved changes yet in this session.";
+  const autosaveIndicatorTone =
+    autosaveState.status === "error"
+      ? "border-rose-500/30 bg-rose-500/10 text-rose-100"
+      : autosaveState.status === "saving" || hasUnsavedChanges
+        ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
+        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100";
+  const autosaveIndicatorText =
+    autosaveState.status === "error"
+      ? autosaveState.detail || "Autosave failed."
+      : autosaveState.status === "saving"
+        ? autosaveState.detail || "Saving changes…"
+        : hasUnsavedChanges
+          ? `Unsaved changes — autosaving in ${Number(AUTOSAVE_DELAY_MS / 1000).toFixed(1)}s.`
+          : "All changes saved.";
+  const lastSavedText = lastSavedAt
+    ? `Last saved ${formatLocalTimestamp(lastSavedAt)}`
+    : "No saved changes yet in this session.";
   const manualSaveHint = !workspace
     ? "Save buttons appear once the audit workspace has loaded."
     : canLeadEdit
@@ -928,8 +942,20 @@ export default function AuditWorkspacePage() {
   if (!mounted) {
     return (
       <PageShell>
-        <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit data." >
+        <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit data.">
           <p className="text-sm text-slate-400">Preparing requirements, exports, and activity…</p>
+        </PageSection>
+      </PageShell>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <PageShell>
+        <PageSection title="Audit workspace" eyebrow="Audit" description="This audit could not be loaded.">
+          <p role="alert" className="text-sm text-rose-200">
+            {bootError}
+          </p>
         </PageSection>
       </PageShell>
     );
@@ -938,7 +964,7 @@ export default function AuditWorkspacePage() {
   if (tokenMissing) {
     return (
       <PageShell>
-        <PageSection title="Audit workspace" eyebrow="Audit" description="Redirecting to login." >
+        <PageSection title="Audit workspace" eyebrow="Audit" description="Redirecting to login.">
           <p className="text-sm text-slate-400">A valid session is required for audit scoring and exports.</p>
         </PageSection>
       </PageShell>
@@ -948,9 +974,15 @@ export default function AuditWorkspacePage() {
   if (!workspace) {
     return (
       <PageShell>
-        <PageSection title="Audit workspace" eyebrow="Audit" description="Loading audit context and requirement groups.">
+        <PageSection
+          title="Audit workspace"
+          eyebrow="Audit"
+          description="Loading audit context and requirement groups."
+        >
           <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
-            <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Back to clients</Link>
+            <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300">
+              <ArrowLeft className="size-4" /> Back to clients
+            </Link>
             <span aria-hidden="true">/</span>
             <span>Audit {auditId || "…"}</span>
           </div>
@@ -978,7 +1010,7 @@ export default function AuditWorkspacePage() {
     { label: "Client", value: decodeHtmlEntities(workspace.audit.client_name) },
     { label: "Audit date", value: formatDateOnly(workspace.audit.audit_date) },
     { label: "Processes", value: groupedProcesses.length },
-    { label: "Exports", value: pdfExports.length }
+    { label: "Exports", value: pdfExports.length },
   ];
 
   return (
@@ -990,7 +1022,9 @@ export default function AuditWorkspacePage() {
           description="The audit is now separated into overview, process scoring, exports, activity, details, and conclusion so each task area stays focused."
         >
           <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
-            <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Clients</Link>
+            <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300">
+              <ArrowLeft className="size-4" /> Clients
+            </Link>
             <span aria-hidden="true">/</span>
             <span>{decodeHtmlEntities(workspace.audit.name)}</span>
           </div>
@@ -1010,15 +1044,20 @@ export default function AuditWorkspacePage() {
             <CardContent className="space-y-4 p-5">
               <div>
                 <p className="text-sm font-semibold text-slate-50">Manual save buttons</p>
-                <p className="mt-1 text-sm text-slate-300">These buttons are always available here near the top of the audit page.</p>
+                <p className="mt-1 text-sm text-slate-300">
+                  These buttons are always available here near the top of the audit page.
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
-                <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
-                <Button variant="secondary" onClick={() => saveAuditDetails()} disabled={!canEdit}><Save className="size-4" /> Save details</Button>
-                <Button variant="secondary" onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>
-                <Button onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
-              </div>
+              <SaveControls
+                canManageScopeTargets={canManageScopeTargets}
+                canEdit={canEdit}
+                canLeadEdit={canLeadEdit}
+                onSaveScope={() => void saveScopeTargets()}
+                onSaveAssessments={() => void saveAssessments()}
+                onSaveDetails={() => void saveAuditDetails()}
+                onSaveConclusion={() => void saveConclusion()}
+                onSaveAll={() => void saveAll()}
+              />
               <div className="text-xs text-slate-400">{manualSaveHint}</div>
             </CardContent>
           </Card>
@@ -1031,41 +1070,79 @@ export default function AuditWorkspacePage() {
                   <Badge variant={statusVariant(auditStatus)}>{auditStatus.replace("_", " ")}</Badge>
                 </div>
                 <div className="grid gap-2">
-                  <label className="text-sm font-medium text-slate-300">Transition</label>
-                  <select value={statusEdit} onChange={(event) => setStatusEdit(event.target.value)} disabled={!canManageStatus}>
+                  <label htmlFor="audit-status" className="text-sm font-medium text-slate-300">
+                    Transition
+                  </label>
+                  <select
+                    id="audit-status"
+                    value={statusEdit}
+                    onChange={(event) => setStatusEdit(event.target.value)}
+                    disabled={!canManageStatus}
+                  >
                     <option value={auditStatus}>{auditStatus}</option>
                     {allowedStatusTransitions.map((status: string) => (
-                      <option key={status} value={status}>{status}</option>
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
                     ))}
                   </select>
                 </div>
-                <Button onClick={saveStatus} disabled={!canManageStatus || statusEdit === auditStatus}><Save className="size-4" /> Save status</Button>
+                <Button onClick={saveStatus} disabled={!canManageStatus || statusEdit === auditStatus}>
+                  <Save className="size-4" /> Save status
+                </Button>
                 <p className={`text-sm ${auditStatus === "draft" ? "text-emerald-200" : "text-amber-100"}`}>
-                  Scope and certification goals are {auditStatus === "draft" ? "editable" : "locked"} while status is <strong>{auditStatus || "unknown"}</strong>.
+                  Scope and certification goals are {auditStatus === "draft" ? "editable" : "locked"} while status is{" "}
+                  <strong>{auditStatus || "unknown"}</strong>.
                 </p>
-                {isLockedForNonLead ? <p className="text-sm text-amber-100">This audit is completed; editing is locked for non-lead roles.</p> : null}
+                {isLockedForNonLead ? (
+                  <p className="text-sm text-amber-100">
+                    This audit is completed; editing is locked for non-lead roles.
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
 
             <Card className="bg-slate-950/45">
               <CardContent className="space-y-4 p-5">
-                <p className="text-sm font-semibold text-slate-50">Save and export actions</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope & targets</Button>
-                  <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
-                  <Button onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
-                </div>
+                <p className="text-sm font-semibold text-slate-50">Export actions</p>
                 <div className={`rounded-2xl border px-4 py-3 text-sm ${autosaveIndicatorTone}`}>
                   <p className="font-medium">{autosaveIndicatorText}</p>
                   <p className="mt-1 text-xs text-current/80">{manualSaveHint}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" onClick={generatePdfExport} disabled={!canExport || isGeneratingPdf}><FileText className="size-4" /> {isGeneratingPdf ? "Generating PDF…" : "Generate PDF export"}</Button>
-                  <Button variant="secondary" onClick={() => downloadAuditCsv("all")} disabled={!canExport || downloadingCsvKind !== null}><Download className="size-4" /> {downloadingCsvKind === "all" ? "Downloading…" : "CSV: all"}</Button>
-                  <Button variant="secondary" onClick={() => downloadAuditCsv("certification")} disabled={!canExport || downloadingCsvKind !== null}>{downloadingCsvKind === "certification" ? "Downloading…" : "CSV: certification"}</Button>
-                  <Button variant="secondary" onClick={() => downloadAuditCsv("gaps")} disabled={!canExport || downloadingCsvKind !== null}>{downloadingCsvKind === "gaps" ? "Downloading…" : "CSV: gaps"}</Button>
+                  <Button variant="secondary" onClick={generatePdfExport} disabled={!canExport || isGeneratingPdf}>
+                    <FileText className="size-4" /> {isGeneratingPdf ? "Generating PDF…" : "Generate PDF export"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => downloadAuditCsv("all")}
+                    disabled={!canExport || downloadingCsvKind !== null}
+                  >
+                    <Download className="size-4" /> {downloadingCsvKind === "all" ? "Downloading…" : "CSV: all"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => downloadAuditCsv("certification")}
+                    disabled={!canExport || downloadingCsvKind !== null}
+                  >
+                    {downloadingCsvKind === "certification" ? "Downloading…" : "CSV: certification"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => downloadAuditCsv("gaps")}
+                    disabled={!canExport || downloadingCsvKind !== null}
+                  >
+                    {downloadingCsvKind === "gaps" ? "Downloading…" : "CSV: gaps"}
+                  </Button>
                 </div>
-                {message ? <div className="rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">{message}</div> : null}
+                {message ? (
+                  <div
+                    role="status"
+                    className="rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-100"
+                  >
+                    {message}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </div>
@@ -1081,25 +1158,37 @@ export default function AuditWorkspacePage() {
               </div>
               <div className="text-xs text-slate-500 lg:max-w-sm lg:text-right">{manualSaveHint}</div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" onClick={() => saveScopeTargets()} disabled={!canManageScopeTargets}><Target className="size-4" /> Save scope</Button>
-              <Button size="sm" variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>
-              <Button size="sm" variant="secondary" onClick={() => saveAuditDetails()} disabled={!canEdit}><Save className="size-4" /> Save details</Button>
-              <Button size="sm" variant="secondary" onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>
-              <Button size="sm" onClick={saveAll} disabled={!canLeadEdit}><Save className="size-4" /> Save all</Button>
-            </div>
+            <SaveControls
+              compact
+              canManageScopeTargets={canManageScopeTargets}
+              canEdit={canEdit}
+              canLeadEdit={canLeadEdit}
+              onSaveScope={() => void saveScopeTargets()}
+              onSaveAssessments={() => void saveAssessments()}
+              onSaveDetails={() => void saveAuditDetails()}
+              onSaveConclusion={() => void saveConclusion()}
+              onSaveAll={() => void saveAll()}
+            />
           </div>
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <ProcessSidebarNav processes={groupedProcesses} activeProcessCode={activeProcessCode} onJump={scrollToProcess} />
+          <ProcessSidebarNav
+            processes={groupedProcesses}
+            activeProcessCode={activeProcessCode}
+            onJump={scrollToProcess}
+          />
 
           <div className="grid gap-6">
             <PageSection
               title="1. Scope & requirements by process"
               eyebrow="Execution"
               description="Each process panel now isolates scope settings, density controls, and requirement scoring to keep work focused."
-              action={<Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}><Layers3 className="size-4" /> Save assessments</Button>}
+              action={
+                <Button variant="secondary" onClick={() => saveAssessments()} disabled={!canEdit}>
+                  <Layers3 className="size-4" /> Save assessments
+                </Button>
+              }
             >
               <div className="grid gap-4">
                 {groupedProcesses.map((group: any) => (
@@ -1116,16 +1205,26 @@ export default function AuditWorkspacePage() {
                       historyByAssessment,
                       loadingHistoryByAssessment,
                       noteDraftByAssessment,
-                      setNoteDraftByAssessment
+                      setNoteDraftByAssessment,
                     }}
                     permissions={{ canManageScopeTargets, canEdit }}
-                     actions={{ updatePanelDensity, toggleAssessmentHistory, addAssessmentNote, requestScopeAutosave: () => requestImmediateAutosave("scope"), requestAssessmentAutosave: () => requestImmediateAutosave("assessments") }}
+                    actions={{
+                      updatePanelDensity,
+                      toggleAssessmentHistory,
+                      addAssessmentNote,
+                      requestScopeAutosave: () => requestImmediateAutosave("scope"),
+                      requestAssessmentAutosave: () => requestImmediateAutosave("assessments"),
+                    }}
                   />
                 ))}
               </div>
             </PageSection>
 
-            <PageSection title="2. Exports" eyebrow="Outputs" description="Generate and retrieve stored exports without leaving the audit context.">
+            <PageSection
+              title="2. Exports"
+              eyebrow="Outputs"
+              description="Generate and retrieve stored exports without leaving the audit context."
+            >
               {pdfExports.length === 0 ? (
                 <p className="text-sm text-slate-400">No stored PDF exports yet.</p>
               ) : (
@@ -1148,7 +1247,12 @@ export default function AuditWorkspacePage() {
                           <td>{formatBytes(item.file_size_bytes)}</td>
                           <td>{item.is_current ? "Yes" : "No"}</td>
                           <td>
-                            <Button size="sm" variant="secondary" disabled={!canExport || downloadingExportId === Number(item.id)} onClick={() => downloadPdfExport(Number(item.id), String(item.file_name))}>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={!canExport || downloadingExportId === Number(item.id)}
+                              onClick={() => downloadPdfExport(Number(item.id), String(item.file_name))}
+                            >
                               {downloadingExportId === Number(item.id) ? "Downloading…" : "Download"}
                             </Button>
                           </td>
@@ -1160,7 +1264,11 @@ export default function AuditWorkspacePage() {
               )}
             </PageSection>
 
-            <PageSection title="3. Audit activity" eyebrow="Timeline" description="Review status changes, saved updates, and archived or restored assessments in local time.">
+            <PageSection
+              title="3. Audit activity"
+              eyebrow="Timeline"
+              description="Review status changes, saved updates, and archived or restored assessments in local time."
+            >
               {(workspace.auditEvents ?? []).length === 0 ? (
                 <p className="text-sm text-slate-400">No audit-level activity recorded yet.</p>
               ) : (
@@ -1169,9 +1277,20 @@ export default function AuditWorkspacePage() {
                     <Card key={`audit-event-${event.id}`} className="bg-slate-950/45">
                       <CardContent className="flex flex-col gap-2 p-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2 text-slate-50"><History className="size-4 text-sky-300" /> <strong>{auditEventLabel(String(event.event_type))}</strong></div>
-                          <p className="text-sm text-slate-300">{auditEventSummary(event) ? decodeHtmlEntities(auditEventSummary(event)) : "No summary available."}</p>
-                          {event.actor_name ? <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Actor: {decodeHtmlEntities(event.actor_name)}</p> : null}
+                          <div className="flex items-center gap-2 text-slate-50">
+                            <History className="size-4 text-sky-300" />{" "}
+                            <strong>{auditEventLabel(String(event.event_type))}</strong>
+                          </div>
+                          <p className="text-sm text-slate-300">
+                            {auditEventSummary(event)
+                              ? decodeHtmlEntities(auditEventSummary(event))
+                              : "No summary available."}
+                          </p>
+                          {event.actor_name ? (
+                            <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                              Actor: {decodeHtmlEntities(event.actor_name)}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="text-sm text-slate-400">{formatLocalTimestamp(event.created_at)}</div>
                       </CardContent>
@@ -1181,8 +1300,15 @@ export default function AuditWorkspacePage() {
               )}
             </PageSection>
 
-            <PageSection title="4. Audit details" eyebrow="Context" description="Capture structured responses and notes that support the process scoring."
-              action={<Button variant="secondary" onClick={() => saveAuditDetails()} disabled={!canEdit}><Save className="size-4" /> Save details</Button>}
+            <PageSection
+              title="4. Audit details"
+              eyebrow="Context"
+              description="Capture structured responses and notes that support the process scoring."
+              action={
+                <Button variant="secondary" onClick={() => saveAuditDetails()} disabled={!canEdit}>
+                  <Save className="size-4" /> Save details
+                </Button>
+              }
             >
               <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
                 <table className="data-table min-w-[900px]">
@@ -1195,18 +1321,50 @@ export default function AuditWorkspacePage() {
                   </thead>
                   <tbody>
                     {(workspace.details ?? []).map((detail: any) => {
-                      const edit = detailEdits[String(detail.field_key)] ?? { fieldKey: detail.field_key, responseText: "", noteText: "" };
+                      const edit = detailEdits[String(detail.field_key)] ?? {
+                        fieldKey: detail.field_key,
+                        responseText: "",
+                        noteText: "",
+                      };
                       return (
                         <tr key={detail.field_key}>
                           <td>
                             <div className="font-semibold text-slate-50">{decodeHtmlEntities(detail.label)}</div>
-                            {detail.guidance_text ? <div className="mt-2 text-sm text-slate-400">{decodeHtmlEntities(detail.guidance_text)}</div> : null}
+                            {detail.guidance_text ? (
+                              <div className="mt-2 text-sm text-slate-400">
+                                {decodeHtmlEntities(detail.guidance_text)}
+                              </div>
+                            ) : null}
                           </td>
                           <td>
-                            <textarea rows={3} value={edit.responseText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, responseText: event.target.value } }))} onBlur={() => requestImmediateAutosave("details")} />
+                            <textarea
+                              aria-label={`${detail.label} response`}
+                              rows={3}
+                              value={edit.responseText}
+                              disabled={!canEdit}
+                              onChange={(event) =>
+                                setDetailEdits((prev) => ({
+                                  ...prev,
+                                  [String(detail.field_key)]: { ...edit, responseText: event.target.value },
+                                }))
+                              }
+                              onBlur={() => requestImmediateAutosave("details")}
+                            />
                           </td>
                           <td>
-                            <textarea rows={3} value={edit.noteText} disabled={!canEdit} onChange={(event) => setDetailEdits((prev) => ({ ...prev, [String(detail.field_key)]: { ...edit, noteText: event.target.value } }))} onBlur={() => requestImmediateAutosave("details")} />
+                            <textarea
+                              aria-label={`${detail.label} notes`}
+                              rows={3}
+                              value={edit.noteText}
+                              disabled={!canEdit}
+                              onChange={(event) =>
+                                setDetailEdits((prev) => ({
+                                  ...prev,
+                                  [String(detail.field_key)]: { ...edit, noteText: event.target.value },
+                                }))
+                              }
+                              onBlur={() => requestImmediateAutosave("details")}
+                            />
                           </td>
                         </tr>
                       );
@@ -1216,12 +1374,32 @@ export default function AuditWorkspacePage() {
               </div>
             </PageSection>
 
-            <PageSection title="5. Conclusion" eyebrow="Wrap-up" description="Record the overall conclusion separately from detailed notes and requirement evidence."
-              action={<Button onClick={() => saveConclusion()} disabled={!canLeadEdit}><Save className="size-4" /> Save conclusion</Button>}
+            <PageSection
+              title="5. Conclusion"
+              eyebrow="Wrap-up"
+              description="Record the overall conclusion separately from detailed notes and requirement evidence."
+              action={
+                <Button onClick={() => saveConclusion()} disabled={!canLeadEdit}>
+                  <Save className="size-4" /> Save conclusion
+                </Button>
+              }
             >
-              <textarea rows={8} value={conclusionEdit} disabled={!canLeadEdit} onChange={(event) => setConclusionEdit(event.target.value)} onBlur={() => requestImmediateAutosave("conclusion")} placeholder="Enter audit conclusion" />
+              <label htmlFor="audit-conclusion" className="text-sm font-medium text-slate-300">
+                Conclusion
+              </label>
+              <textarea
+                id="audit-conclusion"
+                rows={8}
+                value={conclusionEdit}
+                disabled={!canLeadEdit}
+                onChange={(event) => setConclusionEdit(event.target.value)}
+                onBlur={() => requestImmediateAutosave("conclusion")}
+                placeholder="Enter audit conclusion"
+              />
               <div className="text-sm text-slate-400">
-                <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300"><ArrowLeft className="size-4" /> Back to clients and audits</Link>
+                <Link href="/clients" className="inline-flex items-center gap-2 text-sky-300">
+                  <ArrowLeft className="size-4" /> Back to clients and audits
+                </Link>
               </div>
             </PageSection>
           </div>

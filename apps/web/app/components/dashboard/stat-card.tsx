@@ -1,7 +1,15 @@
-// @ts-nocheck
+import type { LucideIcon } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 
-export default function StatCard({ label, value, icon: Icon }) {
+export default function StatCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: number | string;
+  icon: LucideIcon;
+}) {
   return (
     <Card className="border-slate-800/80 bg-slate-950/55">
       <CardContent className="flex items-start justify-between gap-4 p-4">

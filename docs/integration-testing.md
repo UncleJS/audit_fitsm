@@ -28,7 +28,12 @@ The suite validates:
 - JWT revocation after org-role changes
 - CSV export endpoints
 - PDF generate/list/download
-- audit-level history for details/conclusion/status/archive/restore
+- audit-level history for details, conclusion, and status
+- assessment archive and restore
+- result routes for all, certification, and gaps
+- organization trend JSON
+- bad password and missing session
+- cross-organization denial for a non-member
 - org RBAC admin endpoints
 - client-scoped user enforcement (non-system-admin cross-client assignment blocked)
 - web HTML-entity decoding regression (`&amp;` -> `&`)

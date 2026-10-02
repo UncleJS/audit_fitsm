@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { spawnSync } from "node:child_process";
 import type { RowDataPacket } from "mysql2";
 import { config } from "../src/config";
@@ -26,7 +25,7 @@ const fail = (message: string): never => {
 const waitForHttp = async (
   url: string,
   label: string,
-  options?: { attempts?: number; delayMs?: number; accept?: (res: Response) => boolean }
+  options?: { attempts?: number; delayMs?: number; accept?: (res: Response) => boolean },
 ): Promise<Response> => {
   const attempts = Math.max(1, options?.attempts ?? 45);
   const delayMs = Math.max(100, options?.delayMs ?? 1000);
@@ -50,6 +49,7 @@ const waitForHttp = async (
   }
 
   fail(`${label} failed after ${attempts} attempts (${lastError || "unknown error"})`);
+  throw new Error("unreachable");
 };
 
 const main = async () => {
@@ -63,9 +63,7 @@ const main = async () => {
   }
   checks.push("db:ping");
 
-  const [migrationRows] = await db.query<RowDataPacket[]>(
-    "SELECT COUNT(*) AS applied_count FROM schema_migrations"
-  );
+  const [migrationRows] = await db.query<RowDataPacket[]>("SELECT COUNT(*) AS applied_count FROM schema_migrations");
   const appliedCount = Number(migrationRows?.[0]?.applied_count ?? 0);
   if (appliedCount < 1) {
     fail("No migrations have been applied");
@@ -74,7 +72,7 @@ const main = async () => {
 
   // API health + readiness
   const healthRes = await waitForHttp(`${apiBase}/health`, "API health", {
-    accept: (res) => res.status === 200
+    accept: (res) => res.status === 200,
   });
   const healthJson = await healthRes.json();
   if (String(healthJson?.status ?? "") !== "ok") {
@@ -83,7 +81,7 @@ const main = async () => {
   checks.push("api:health");
 
   const readyRes = await waitForHttp(`${apiBase}/ready`, "API readiness", {
-    accept: (res) => res.status === 200
+    accept: (res) => res.status === 200,
   });
   const readyJson = await readyRes.json();
   if (String(readyJson?.status ?? "") !== "ready") {
@@ -95,7 +93,7 @@ const main = async () => {
   await waitForHttp(webBase, "Web UI", {
     attempts: 90,
     delayMs: 1000,
-    accept: (res) => res.status >= 200 && res.status < 400
+    accept: (res) => res.status >= 200 && res.status < 400,
   });
   checks.push("web:http");
 
@@ -104,7 +102,7 @@ const main = async () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: adminEmail, password: adminPassword }),
-      signal: AbortSignal.timeout(7000)
+      signal: AbortSignal.timeout(7000),
     });
     if (!loginRes.ok) {
       fail(`Auth login failed: ${loginRes.status} ${await loginRes.text()}`);
@@ -118,7 +116,7 @@ const main = async () => {
 
     const meRes = await fetch(`${apiBase}/me`, {
       headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(7000)
+      signal: AbortSignal.timeout(7000),
     });
     if (!meRes.ok) {
       fail(`GET /me failed: ${meRes.status} ${await meRes.text()}`);
@@ -133,9 +131,9 @@ const main = async () => {
         ...process.env,
         API_BASE_URL: apiBase,
         TEST_ADMIN_EMAIL: adminEmail,
-        TEST_ADMIN_PASSWORD: adminPassword
+        TEST_ADMIN_PASSWORD: adminPassword,
       },
-      stdio: "inherit"
+      stdio: "inherit",
     });
 
     if (run.status !== 0) {
@@ -146,7 +144,7 @@ const main = async () => {
     const webRegression = spawnSync("bun", ["test", "app/lib/text-format.test.ts"], {
       cwd: `${process.cwd()}/../web`,
       env: { ...process.env },
-      stdio: "inherit"
+      stdio: "inherit",
     });
 
     if (webRegression.status !== 0) {
@@ -164,11 +162,11 @@ const main = async () => {
         mode,
         apiBase,
         webBase,
-        checks
+        checks,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 };
 

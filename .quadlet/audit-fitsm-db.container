@@ -12,6 +12,7 @@ Environment=MARIADB_DATABASE=audit_fitsm
 Environment=MARIADB_USER=audit_app
 Environment=MARIADB_PASSWORD=change_me
 Environment=MARIADB_ROOT_PASSWORD=change_root
+# Local development defaults only. Do not publish this unit beyond 127.0.0.1.
 Volume=audit-fitsm-db.volume:/var/lib/mysql:Z
 
 [Install]

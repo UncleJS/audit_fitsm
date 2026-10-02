@@ -15,6 +15,7 @@ Environment=DB_USER=audit_app
 Environment=DB_PASSWORD=change_me
 Environment=DB_NAME=audit_fitsm
 Environment=JWT_SECRET=replace-with-strong-secret
+Environment=ALLOW_INSECURE_DEFAULTS=1
 Environment=APP_PORT=1261
 Environment=EXPORTS_DIR=/workspace/data/exports
 Environment=BACKUPS_DIR=/workspace/data/backups

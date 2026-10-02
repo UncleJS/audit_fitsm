@@ -1,14 +1,57 @@
-// @ts-nocheck
 import { UserPlus } from "lucide-react";
+import type { FormEvent } from "react";
+import { decodeHtmlEntities } from "../../lib/text-format";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
-import { decodeHtmlEntities } from "../../lib/text-format";
+
+type ClientOption = { id: number; name: string };
+type RoleOption = { code: string; description?: string };
+type OrgUser = {
+  id: number;
+  email: string;
+  display_name: string;
+  is_active: boolean;
+  has_active_org_roles: boolean;
+  roles: string[];
+};
 
 export default function UsersTab({
   clientControls,
   createUserForm,
-  userTable
+  userTable,
+}: {
+  clientControls: {
+    selectedClientId: number | null;
+    setSelectedClientId: (id: number) => void;
+    clients: ClientOption[];
+    rbacDensity: string;
+    updateRbacDensity: (density: "comfortable" | "compact") => void;
+    roleGridCols: string;
+  };
+  createUserForm: {
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    email: string;
+    setEmail: (value: string) => void;
+    displayName: string;
+    setDisplayName: (value: string) => void;
+    password: string;
+    setPassword: (value: string) => void;
+    rolesCatalog: RoleOption[];
+    selectedRoles: string[];
+    setSelectedRoles: (update: (prev: string[]) => string[]) => void;
+    toggleRoleSelection: (roles: string[], code: string) => string[];
+    isCreating: boolean;
+  };
+  userTable: {
+    orgUsers: OrgUser[];
+    roleEditsByUserId: Record<string, string[]>;
+    savingRolesByUserId: Record<string, boolean>;
+    setRoleEditsByUserId: (update: (prev: Record<string, string[]>) => Record<string, string[]>) => void;
+    saveUserRoles: (userId: number) => void;
+    archiveUserInClient: (userId: number) => void;
+    tokenMissing: boolean;
+  };
 }) {
   return (
     <div className="grid gap-4">
@@ -19,14 +62,37 @@ export default function UsersTab({
               <p className="text-sm font-semibold text-slate-50">Selected client</p>
               <p className="mt-1 text-sm text-slate-400">Choose the client whose users and roles you want to manage.</p>
             </div>
-            <select value={clientControls.selectedClientId ?? ""} onChange={(event) => clientControls.setSelectedClientId(Number(event.target.value))}>
+            <label htmlFor="admin-client" className="text-sm font-medium text-slate-300">
+              Client
+            </label>
+            <select
+              id="admin-client"
+              value={clientControls.selectedClientId ?? ""}
+              onChange={(event) => clientControls.setSelectedClientId(Number(event.target.value))}
+            >
               {clientControls.clients.map((client) => (
-                <option key={client.id} value={client.id}>{decodeHtmlEntities(client.name)}</option>
+                <option key={client.id} value={client.id}>
+                  {decodeHtmlEntities(client.name)}
+                </option>
               ))}
             </select>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" active={clientControls.rbacDensity === "comfortable"} onClick={() => clientControls.updateRbacDensity("comfortable")}>Comfortable</Button>
-              <Button size="sm" variant="secondary" active={clientControls.rbacDensity === "compact"} onClick={() => clientControls.updateRbacDensity("compact")}>Compact</Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                active={clientControls.rbacDensity === "comfortable"}
+                onClick={() => clientControls.updateRbacDensity("comfortable")}
+              >
+                Comfortable
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                active={clientControls.rbacDensity === "compact"}
+                onClick={() => clientControls.updateRbacDensity("compact")}
+              >
+                Compact
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -34,29 +100,70 @@ export default function UsersTab({
         <Card>
           <CardContent className="space-y-4 p-5">
             <div className="flex items-center gap-3">
-              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200"><UserPlus className="size-4" /></span>
+              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200">
+                <UserPlus className="size-4" />
+              </span>
               <div>
                 <p className="text-sm font-semibold text-slate-50">Create user in client</p>
-                <p className="mt-1 text-sm text-slate-400">Archive-only behavior is preserved: clearing all roles archives the user in that client.</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  Archive-only behavior is preserved: clearing all roles archives the user in that client.
+                </p>
               </div>
             </div>
 
             <form onSubmit={createUserForm.onSubmit} className="grid gap-4">
               <div className="grid gap-3 md:grid-cols-3">
-                <input type="email" placeholder="User email" value={createUserForm.email} onChange={(event) => createUserForm.setEmail(event.target.value)} required />
-                <input placeholder="Display name" value={createUserForm.displayName} onChange={(event) => createUserForm.setDisplayName(event.target.value)} minLength={2} required />
-                <input type="password" placeholder="Temporary password" value={createUserForm.password} onChange={(event) => createUserForm.setPassword(event.target.value)} minLength={8} required />
+                <input
+                  id="new-user-email"
+                  aria-label="User email"
+                  type="email"
+                  placeholder="User email"
+                  value={createUserForm.email}
+                  onChange={(event) => createUserForm.setEmail(event.target.value)}
+                  required
+                />
+                <input
+                  id="new-user-name"
+                  aria-label="Display name"
+                  placeholder="Display name"
+                  value={createUserForm.displayName}
+                  onChange={(event) => createUserForm.setDisplayName(event.target.value)}
+                  minLength={2}
+                  required
+                />
+                <input
+                  id="new-user-password"
+                  aria-label="Temporary password"
+                  type="password"
+                  placeholder="Temporary password"
+                  value={createUserForm.password}
+                  onChange={(event) => createUserForm.setPassword(event.target.value)}
+                  minLength={8}
+                  required
+                />
               </div>
               <div className={`grid gap-2 ${clientControls.roleGridCols} sm:grid-cols-3 xl:grid-cols-4`}>
                 {createUserForm.rolesCatalog.map((role) => (
-                  <label key={`new-role-${role.code}`} className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm text-slate-200">
-                    <input type="checkbox" className="size-4 w-4 accent-sky-400" checked={createUserForm.selectedRoles.includes(role.code)} onChange={() => createUserForm.setSelectedRoles((prev) => createUserForm.toggleRoleSelection(prev, role.code))} />
+                  <label
+                    key={`new-role-${role.code}`}
+                    className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm text-slate-200"
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-4 w-4 accent-sky-400"
+                      checked={createUserForm.selectedRoles.includes(role.code)}
+                      onChange={() =>
+                        createUserForm.setSelectedRoles((prev) => createUserForm.toggleRoleSelection(prev, role.code))
+                      }
+                    />
                     <span>{decodeHtmlEntities(role.code)}</span>
                   </label>
                 ))}
               </div>
               <div>
-                <Button type="submit" disabled={createUserForm.isCreating || !clientControls.selectedClientId}>{createUserForm.isCreating ? "Creating…" : "Create user"}</Button>
+                <Button type="submit" disabled={createUserForm.isCreating || !clientControls.selectedClientId}>
+                  {createUserForm.isCreating ? "Creating…" : "Create user"}
+                </Button>
               </div>
             </form>
           </CardContent>
@@ -64,11 +171,17 @@ export default function UsersTab({
       </div>
 
       <div className="space-y-2">
-        {userTable.orgUsers.length > 0 ? <p className="text-xs uppercase tracking-[0.16em] text-slate-500 lg:hidden">Swipe horizontally to review role assignments and actions</p> : null}
+        {userTable.orgUsers.length > 0 ? (
+          <p className="text-xs uppercase tracking-[0.16em] text-slate-500 lg:hidden">
+            Swipe horizontally to review role assignments and actions
+          </p>
+        ) : null}
         <Card>
           <CardContent className="p-0">
             {userTable.orgUsers.length === 0 ? (
-              <div className="p-6 text-sm text-slate-400">No users found for this client, or you do not have org admin access.</div>
+              <div className="p-6 text-sm text-slate-400">
+                No users found for this client, or you do not have org admin access.
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table min-w-[1100px]">
@@ -89,19 +202,33 @@ export default function UsersTab({
                       const saving = !!userTable.savingRolesByUserId[key];
                       return (
                         <tr key={`org-user-${user.id}`}>
-                          <td><div className="font-medium text-slate-50">{decodeHtmlEntities(user.display_name)}</div></td>
+                          <td>
+                            <div className="font-medium text-slate-50">{decodeHtmlEntities(user.display_name)}</div>
+                          </td>
                           <td className="text-slate-300">{decodeHtmlEntities(user.email)}</td>
                           <td>{user.is_active ? "Yes" : "No"}</td>
-                          <td><Badge variant={user.has_active_org_roles ? "success" : "warning"}>{user.has_active_org_roles ? "Active" : "Archived"}</Badge></td>
+                          <td>
+                            <Badge variant={user.has_active_org_roles ? "success" : "warning"}>
+                              {user.has_active_org_roles ? "Active" : "Archived"}
+                            </Badge>
+                          </td>
                           <td>
                             <div className={`grid gap-2 ${clientControls.roleGridCols} xl:grid-cols-4`}>
                               {createUserForm.rolesCatalog.map((role) => (
-                                <label key={`user-${user.id}-${role.code}`} className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-xs text-slate-200">
+                                <label
+                                  key={`user-${user.id}-${role.code}`}
+                                  className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-xs text-slate-200"
+                                >
                                   <input
                                     type="checkbox"
                                     className="size-4 w-4 accent-sky-400"
                                     checked={editRoles.includes(role.code)}
-                                    onChange={() => userTable.setRoleEditsByUserId((prev) => ({ ...prev, [key]: createUserForm.toggleRoleSelection(prev[key] ?? user.roles, role.code) }))}
+                                    onChange={() =>
+                                      userTable.setRoleEditsByUserId((prev) => ({
+                                        ...prev,
+                                        [key]: createUserForm.toggleRoleSelection(prev[key] ?? user.roles, role.code),
+                                      }))
+                                    }
                                   />
                                   <span>{decodeHtmlEntities(role.code)}</span>
                                 </label>
@@ -110,8 +237,22 @@ export default function UsersTab({
                           </td>
                           <td>
                             <div className="flex flex-col gap-2">
-                              <Button size="sm" variant="secondary" onClick={() => userTable.saveUserRoles(user.id)} disabled={saving || userTable.tokenMissing}>{saving ? "Saving…" : "Save roles"}</Button>
-                              <Button size="sm" variant="danger" onClick={() => userTable.archiveUserInClient(user.id)} disabled={saving || userTable.tokenMissing || !user.has_active_org_roles}>Archive in client</Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => userTable.saveUserRoles(user.id)}
+                                disabled={saving || userTable.tokenMissing}
+                              >
+                                {saving ? "Saving…" : "Save roles"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                onClick={() => userTable.archiveUserInClient(user.id)}
+                                disabled={saving || userTable.tokenMissing || !user.has_active_org_roles}
+                              >
+                                Archive in client
+                              </Button>
                             </div>
                           </td>
                         </tr>

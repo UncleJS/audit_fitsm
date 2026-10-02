@@ -17,7 +17,7 @@ Guide for the `/audits/:auditId` workspace used to perform audit execution.
 
 ## Purpose
 
-The audit workspace groups the audit into one page for scoring, evidence capture, notes/history, audit details, conclusion, and export generation.
+The audit workspace groups the audit into one page for scoring, evidence capture, notes/history, audit details, conclusion, and export generation. The browser reaches it with the httpOnly session cookie described in `docs/security-model.md`. Manual saves appear in the top save block and the sticky save bar. The middle card is for exports.
 
 [Go to TOC](#table-of-contents)
 

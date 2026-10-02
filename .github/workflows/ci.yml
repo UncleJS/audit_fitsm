@@ -8,16 +8,42 @@ on:
       - master
 
 jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Enforce UI date-input policy
+        run: bash ./scripts/check-ui-date-inputs.sh
+
+      - name: Secret scan
+        run: bash ./scripts/check-secrets.sh
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun run test:unit
+
   strict-readiness:
+    needs: static
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Enforce UI date-input policy
-        run: bash ./scripts/check-ui-date-inputs.sh
 
       - name: Install Podman
         run: |

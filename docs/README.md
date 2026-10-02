@@ -16,6 +16,7 @@ Index of project documentation pages.
 ## Core docs
 
 - `api-surface.md` - HTTP route inventory and behavior notes
+- `security-model.md` - cookie session, authorization, and local secret policy
 - `ods-operational-mapping.md` - workbook import and mapping notes
 - `integration-testing.md` - readiness and integration validation
 - `ui-date-formatting.md` - required date/timestamp display rules

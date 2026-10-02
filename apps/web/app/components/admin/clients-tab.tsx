@@ -1,9 +1,27 @@
-// @ts-nocheck
+import type { FormEvent } from "react";
+import { decodeHtmlEntities } from "../../lib/text-format";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
-import { decodeHtmlEntities } from "../../lib/text-format";
 
-export default function ClientsTab({ createClient, newClientName, setNewClientName, isCreatingClient, clients, selectedClientId, setSelectedClientId }) {
+type ClientOption = { id: number; name: string };
+
+export default function ClientsTab({
+  createClient,
+  newClientName,
+  setNewClientName,
+  isCreatingClient,
+  clients,
+  selectedClientId,
+  setSelectedClientId,
+}: {
+  createClient: (event: FormEvent<HTMLFormElement>) => void;
+  newClientName: string;
+  setNewClientName: (value: string) => void;
+  isCreatingClient: boolean;
+  clients: ClientOption[];
+  selectedClientId: number | null;
+  setSelectedClientId: (id: number) => void;
+}) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,420px)_1fr]">
       <Card>
@@ -13,8 +31,16 @@ export default function ClientsTab({ createClient, newClientName, setNewClientNa
             <p className="mt-1 text-sm text-slate-400">Add a new organization before assigning audits and roles.</p>
           </div>
           <form onSubmit={createClient} className="grid gap-3">
-            <input value={newClientName} onChange={(event) => setNewClientName(event.target.value)} placeholder="New client name" required />
-            <Button type="submit" disabled={isCreatingClient}>{isCreatingClient ? "Creating…" : "Create client"}</Button>
+            <input
+              aria-label="New client name"
+              value={newClientName}
+              onChange={(event) => setNewClientName(event.target.value)}
+              placeholder="New client name"
+              required
+            />
+            <Button type="submit" disabled={isCreatingClient}>
+              {isCreatingClient ? "Creating…" : "Create client"}
+            </Button>
           </form>
         </CardContent>
       </Card>
@@ -38,7 +64,11 @@ export default function ClientsTab({ createClient, newClientName, setNewClientNa
                     <td className="font-medium text-slate-50">{decodeHtmlEntities(client.name)}</td>
                     <td className="font-mono text-slate-400">#{client.id}</td>
                     <td>
-                      <Button size="sm" variant={selectedClientId === client.id ? "primary" : "secondary"} onClick={() => setSelectedClientId(client.id)}>
+                      <Button
+                        size="sm"
+                        variant={selectedClientId === client.id ? "primary" : "secondary"}
+                        onClick={() => setSelectedClientId(client.id)}
+                      >
                         {selectedClientId === client.id ? "Selected" : "Select"}
                       </Button>
                     </td>

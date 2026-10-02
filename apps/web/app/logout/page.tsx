@@ -1,16 +1,28 @@
-// @ts-nocheck
 "use client";
 
-import { useEffect } from "react";
 import { LogOut } from "lucide-react";
+import { useEffect } from "react";
 import PageShell from "../components/layout/page-shell";
 import { Card, CardContent } from "../components/ui/card";
+import { apiFetch } from "../lib/api";
 
 export default function LogoutPage() {
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.sessionStorage.removeItem("audit_fitsm_token");
-    window.location.href = "/login";
+    let cancelled = false;
+    const signOut = async () => {
+      try {
+        await apiFetch("/auth/logout", { method: "POST" });
+      } catch {
+        // still leave the page if the API is unreachable
+      }
+      if (!cancelled) {
+        window.location.href = "/login";
+      }
+    };
+    void signOut();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

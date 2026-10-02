@@ -18,7 +18,7 @@ export const getDb = (): Pool => {
     connectionLimit: 10,
     queueLimit: 0,
     namedPlaceholders: true,
-    dateStrings: true
+    dateStrings: true,
   });
 
   return pool;

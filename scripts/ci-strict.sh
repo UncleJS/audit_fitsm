@@ -16,6 +16,7 @@ DB_NAME="${DB_NAME:-audit_fitsm}"
 DB_ROOT_PASSWORD="${DB_ROOT_PASSWORD:-change_root}"
 
 JWT_SECRET="${JWT_SECRET:-replace-with-strong-secret}"
+ALLOW_INSECURE_DEFAULTS="${ALLOW_INSECURE_DEFAULTS:-1}"
 TEST_ADMIN_EMAIL="${TEST_ADMIN_EMAIL:-admin@example.com}"
 TEST_ADMIN_PASSWORD="${TEST_ADMIN_PASSWORD:-ChangeMe123!}"
 
@@ -96,6 +97,7 @@ podman run -d --name "${DEV_CONTAINER}" \
   -e DB_PASSWORD="${DB_PASSWORD}" \
   -e DB_NAME="${DB_NAME}" \
   -e JWT_SECRET="${JWT_SECRET}" \
+  -e ALLOW_INSECURE_DEFAULTS="${ALLOW_INSECURE_DEFAULTS}" \
   -e APP_PORT="${INTERNAL_APP_PORT}" \
   -e EXPORTS_DIR=/workspace/data/exports \
   -e BACKUPS_DIR=/workspace/data/backups \
@@ -137,6 +139,13 @@ if podman exec "${DEV_CONTAINER}" test -f "${FITSM_ODS_PATH}"; then
 else
   printf "[ci] FITSM workbook not found at %s; using minimal seeded catalog from migrations\n" "${FITSM_ODS_PATH}"
 fi
+
+printf "[ci] backup and restore smoke\n"
+podman exec "${DEV_CONTAINER}" bun run --cwd /workspace/apps/api backup:db
+podman exec "${DEV_CONTAINER}" sh -lc 'latest=$(ls -1t /workspace/data/backups/*.zip | head -1); test -n "$latest"; bun run --cwd /workspace/apps/api restore:db -- "$latest" --yes'
+
+printf "[ci] production web build\n"
+podman exec "${DEV_CONTAINER}" bun run --cwd /workspace/apps/web build
 
 printf "[ci] starting api and web processes\n"
 podman exec -d "${DEV_CONTAINER}" sh -lc "bun run --cwd /workspace/apps/api dev >/tmp/api.log 2>&1"

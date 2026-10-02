@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import mysql from "mysql2/promise";
@@ -12,7 +11,7 @@ const connection = await mysql.createConnection({
   user: config.db.user,
   password: config.db.password,
   database: config.db.database,
-  multipleStatements: true
+  multipleStatements: true,
 });
 
 await connection.execute("SET time_zone = '+00:00'");
@@ -32,10 +31,7 @@ const files = (await readdir(migrationsDir))
   .sort((a, b) => a.localeCompare(b));
 
 for (const filename of files) {
-  const [applied] = await connection.query(
-    "SELECT 1 FROM schema_migrations WHERE filename = ? LIMIT 1",
-    [filename]
-  );
+  const [applied] = await connection.query("SELECT 1 FROM schema_migrations WHERE filename = ? LIMIT 1", [filename]);
 
   if (Array.isArray(applied) && applied.length > 0) {
     console.log(`skip ${filename}`);
@@ -44,7 +40,7 @@ for (const filename of files) {
 
   const sql = (await readFile(resolve(migrationsDir, filename), "utf8")).replaceAll(
     "UTC_TIMESTAMP(3)",
-    "CURRENT_TIMESTAMP(3)"
+    "CURRENT_TIMESTAMP(3)",
   );
   console.log(`apply ${filename}`);
   await connection.query(sql);

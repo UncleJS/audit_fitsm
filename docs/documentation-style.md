@@ -14,7 +14,7 @@ Standard rules for project documentation pages.
 
 ## Overview
 
-Use this standard for all `.md` pages in this repository (root docs and `docs/` pages):
+Use this standard for user-facing `.md` pages in this repository (root docs and `docs/` pages). `AGENTS.md` is an operational instruction file and is exempt.
 
 1. Add at least one shields.io badge at the top.
 2. Include a **Table of Contents** section near the top.

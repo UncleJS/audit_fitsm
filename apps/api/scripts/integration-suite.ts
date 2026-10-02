@@ -1,12 +1,10 @@
-// @ts-nocheck
-
 const apiBase = process.env.API_BASE_URL ?? "http://localhost:1261";
 const adminEmail = process.env.TEST_ADMIN_EMAIL ?? "admin@example.com";
 const adminPassword = process.env.TEST_ADMIN_PASSWORD ?? "ChangeMe123!";
 
 const jsonHeaders = (token?: string) => ({
   "Content-Type": "application/json",
-  ...(token ? { Authorization: `Bearer ${token}` } : {})
+  ...(token ? { Authorization: `Bearer ${token}` } : {}),
 });
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -22,17 +20,33 @@ const expectOk = async (res: Response, label: string) => {
   }
 };
 
+type AuditEvent = { event_type?: string };
+
 const main = async () => {
   const stamp = Date.now();
   const clientName = `IT Client ${stamp}`;
   const auditName = `IT Audit ${stamp}`;
   const auditorEmail = `it.auditor.${stamp}@example.com`;
 
+  const badPasswordRes = await fetch(`${apiBase}/auth/login`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ email: adminEmail, password: "not-the-password" }),
+  });
+  if (badPasswordRes.status !== 401) {
+    fail(`expected 401 for bad password, got ${badPasswordRes.status}`);
+  }
+
+  const missingAuthRes = await fetch(`${apiBase}/clients`);
+  if (missingAuthRes.status !== 401) {
+    fail(`expected 401 for missing session, got ${missingAuthRes.status}`);
+  }
+
   // admin login
   const loginRes = await fetch(`${apiBase}/auth/login`, {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ email: adminEmail, password: adminPassword })
+    body: JSON.stringify({ email: adminEmail, password: adminPassword }),
   });
   await expectOk(loginRes, "admin login");
   const loginBody = await loginRes.json();
@@ -43,7 +57,7 @@ const main = async () => {
   const createClientRes = await fetch(`${apiBase}/clients`, {
     method: "POST",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ name: clientName })
+    body: JSON.stringify({ name: clientName }),
   });
   await expectOk(createClientRes, "create client");
   const client = await createClientRes.json();
@@ -65,7 +79,7 @@ const main = async () => {
   const createAuditRes = await fetch(`${apiBase}/orgs/${orgId}/audits`, {
     method: "POST",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ name: auditName, auditDate })
+    body: JSON.stringify({ name: auditName, auditDate }),
   });
   await expectOk(createAuditRes, "create audit");
   const createdAudit = await createAuditRes.json();
@@ -73,7 +87,7 @@ const main = async () => {
 
   // workspace
   const workspaceRes = await fetch(`${apiBase}/audits/${auditId}/workspace`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(workspaceRes, "workspace");
   const workspace = await workspaceRes.json();
@@ -91,10 +105,10 @@ const main = async () => {
           processCode: firstGroup.processCode,
           certGoalLevel: 2,
           customGoalLevel: 3,
-          scopeCode: "IN_SCOPE"
-        }
-      ]
-    })
+          scopeCode: "IN_SCOPE",
+        },
+      ],
+    }),
   });
   await expectOk(scopeRes, "scope-target update");
 
@@ -108,10 +122,10 @@ const main = async () => {
           requirementCode: firstReq.requirementCode,
           scoreLabel: "2",
           commentText: "=SUM(1,1)",
-          evidenceText: "@integration-proof"
-        }
-      ]
-    })
+          evidenceText: "@integration-proof",
+        },
+      ],
+    }),
   });
   await expectOk(assessRes, "assessment update");
 
@@ -119,12 +133,12 @@ const main = async () => {
   const noteRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/notes`, {
     method: "POST",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ noteText: "integration-test note" })
+    body: JSON.stringify({ noteText: "integration-test note" }),
   });
   await expectOk(noteRes, "add note");
 
   const historyRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/history`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(historyRes, "history read");
 
@@ -132,24 +146,24 @@ const main = async () => {
   const detailsRes = await fetch(`${apiBase}/audits/${auditId}/details`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ items: [{ fieldKey: "auditee_name", responseText: "IT Auditee", noteText: "note" }] })
+    body: JSON.stringify({ items: [{ fieldKey: "auditee_name", responseText: "IT Auditee", noteText: "note" }] }),
   });
   await expectOk(detailsRes, "details update");
 
   const conclusionRes = await fetch(`${apiBase}/audits/${auditId}/conclusion`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ conclusionText: "integration-test conclusion" })
+    body: JSON.stringify({ conclusionText: "integration-test conclusion" }),
   });
   await expectOk(conclusionRes, "conclusion update");
 
   const historyAfterAuditMetaRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/history`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(historyAfterAuditMetaRes, "history read after audit-meta changes");
   const historyAfterAuditMeta = await historyAfterAuditMetaRes.json();
   const misleadingEventTypes = new Set(
-    (historyAfterAuditMeta.events ?? []).map((event: any) => String(event.event_type))
+    (historyAfterAuditMeta.events ?? []).map((event: AuditEvent) => String(event.event_type)),
   );
   if (misleadingEventTypes.has("detail_response_changed") || misleadingEventTypes.has("conclusion_changed")) {
     fail("assessment history should not contain audit-level detail/conclusion events");
@@ -160,18 +174,18 @@ const main = async () => {
     const stRes = await fetch(`${apiBase}/audits/${auditId}/status`, {
       method: "PUT",
       headers: jsonHeaders(adminToken),
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ status }),
     });
     await expectOk(stRes, `status transition -> ${status}`);
   }
 
   const workspaceAfterChangesRes = await fetch(`${apiBase}/audits/${auditId}/workspace`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(workspaceAfterChangesRes, "workspace after audit changes");
   const workspaceAfterChanges = await workspaceAfterChangesRes.json();
   const auditEventTypes = new Set(
-    (workspaceAfterChanges.auditEvents ?? []).map((event: any) => String(event.event_type))
+    (workspaceAfterChanges.auditEvents ?? []).map((event: AuditEvent) => String(event.event_type)),
   );
   for (const expectedType of ["detail_response_changed", "conclusion_changed", "status_changed"]) {
     if (!auditEventTypes.has(expectedType)) {
@@ -182,7 +196,7 @@ const main = async () => {
   // csv exports
   for (const report of ["all", "certification", "gaps"]) {
     const csvRes = await fetch(`${apiBase}/audits/${auditId}/exports/csv?report=${report}`, {
-      headers: authHeaders(adminToken)
+      headers: authHeaders(adminToken),
     });
     await expectOk(csvRes, `audit csv ${report}`);
 
@@ -195,25 +209,25 @@ const main = async () => {
   }
 
   const trendsCsvRes = await fetch(`${apiBase}/orgs/${orgId}/exports/csv?report=trends`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(trendsCsvRes, "trends csv");
 
   // pdf export + list + download
   const pdfRes = await fetch(`${apiBase}/audits/${auditId}/exports/pdf`, {
     method: "POST",
-    headers: jsonHeaders(adminToken)
+    headers: jsonHeaders(adminToken),
   });
   await expectOk(pdfRes, "pdf generate");
   const pdfMeta = await pdfRes.json();
 
   const exportsRes = await fetch(`${apiBase}/audits/${auditId}/exports`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(exportsRes, "exports list");
 
   const downloadRes = await fetch(`${apiBase}/audits/${auditId}/exports/${pdfMeta.id}/download`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(downloadRes, "pdf download");
 
@@ -228,8 +242,8 @@ const main = async () => {
       email: auditorEmail,
       password: "ChangeMe123!",
       displayName: "Integration Auditor",
-      roles: ["auditor"]
-    })
+      roles: ["auditor"],
+    }),
   });
   await expectOk(createOrgUserRes, "create org user");
   const createdUser = await createOrgUserRes.json();
@@ -237,7 +251,7 @@ const main = async () => {
   const secondClientRes = await fetch(`${apiBase}/clients`, {
     method: "POST",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ name: `${clientName} Secondary` })
+    body: JSON.stringify({ name: `${clientName} Secondary` }),
   });
   await expectOk(secondClientRes, "create second client for user-scope test");
   const secondClient = await secondClientRes.json();
@@ -250,8 +264,8 @@ const main = async () => {
       email: auditorEmail,
       password: "ChangeMe123!",
       displayName: "Integration Auditor",
-      roles: ["viewer"]
-    })
+      roles: ["viewer"],
+    }),
   });
   if (crossClientUserRes.status !== 409) {
     fail(`expected 409 for non-system-admin cross-client user, got ${crossClientUserRes.status}`);
@@ -260,12 +274,12 @@ const main = async () => {
   const updateRolesRes = await fetch(`${apiBase}/orgs/${orgId}/users/${createdUser.id}/roles`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ roles: ["auditor", "viewer"] })
+    body: JSON.stringify({ roles: ["auditor", "viewer"] }),
   });
   await expectOk(updateRolesRes, "update org user roles");
 
   const orgUsersRes = await fetch(`${apiBase}/orgs/${orgId}/users`, {
-    headers: authHeaders(adminToken)
+    headers: authHeaders(adminToken),
   });
   await expectOk(orgUsersRes, "org users list");
 
@@ -273,14 +287,14 @@ const main = async () => {
   const completeRes = await fetch(`${apiBase}/audits/${auditId}/status`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ status: "completed" })
+    body: JSON.stringify({ status: "completed" }),
   });
   await expectOk(completeRes, "complete audit for lock test");
 
   const auditorLoginRes = await fetch(`${apiBase}/auth/login`, {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ email: auditorEmail, password: "ChangeMe123!" })
+    body: JSON.stringify({ email: auditorEmail, password: "ChangeMe123!" }),
   });
   await expectOk(auditorLoginRes, "auditor login");
   const auditorToken = String((await auditorLoginRes.json()).accessToken ?? "");
@@ -294,10 +308,10 @@ const main = async () => {
           requirementCode: firstReq.requirementCode,
           scoreLabel: "3",
           commentText: "should fail due to lock",
-          evidenceText: "should fail"
-        }
-      ]
-    })
+          evidenceText: "should fail",
+        },
+      ],
+    }),
   });
   if (auditorWriteRes.status !== 403) {
     const body = await auditorWriteRes.text();
@@ -307,16 +321,55 @@ const main = async () => {
   const revokeAuditorRolesRes = await fetch(`${apiBase}/orgs/${orgId}/users/${createdUser.id}/roles`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ roles: [] })
+    body: JSON.stringify({ roles: [] }),
   });
   await expectOk(revokeAuditorRolesRes, "revoke org user roles");
 
   const revokedTokenClientsRes = await fetch(`${apiBase}/clients`, {
-    headers: authHeaders(auditorToken)
+    headers: authHeaders(auditorToken),
   });
   if (revokedTokenClientsRes.status !== 401) {
     const body = await revokedTokenClientsRes.text();
     fail(`expected 401 for revoked token, got ${revokedTokenClientsRes.status} ${body}`);
+  }
+
+  for (const report of ["all", "certification", "gaps"]) {
+    const resultsRes = await fetch(`${apiBase}/audits/${auditId}/results/${report}`, {
+      headers: authHeaders(adminToken),
+    });
+    await expectOk(resultsRes, `results ${report}`);
+  }
+
+  const trendsRes = await fetch(`${apiBase}/orgs/${orgId}/trends`, {
+    headers: authHeaders(adminToken),
+  });
+  await expectOk(trendsRes, "org trends");
+
+  const archiveRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/archive`, {
+    method: "POST",
+    headers: jsonHeaders(adminToken),
+  });
+  await expectOk(archiveRes, "archive assessment");
+
+  const restoreRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/restore`, {
+    method: "POST",
+    headers: jsonHeaders(adminToken),
+  });
+  await expectOk(restoreRes, "restore assessment");
+
+  const auditorAgainRes = await fetch(`${apiBase}/auth/login`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ email: auditorEmail, password: "ChangeMe123!" }),
+  });
+  await expectOk(auditorAgainRes, "auditor login after revocation");
+  const auditorAfterRevoke = String((await auditorAgainRes.json()).accessToken ?? "");
+
+  const crossOrgRes = await fetch(`${apiBase}/orgs/${secondOrgId}/audits`, {
+    headers: authHeaders(auditorAfterRevoke),
+  });
+  if (crossOrgRes.status !== 403) {
+    fail(`expected 403 for cross-org audit list, got ${crossOrgRes.status}`);
   }
 
   console.log(
@@ -344,13 +397,21 @@ const main = async () => {
           "client-scoped users",
           "completed audit lock",
           "jwt revocation",
-          "audit-level history integrity"
-        ]
+          "audit-level history integrity",
+          "bad password",
+          "missing session",
+          "results",
+          "trends",
+          "archive/restore",
+          "cross-org denial",
+        ],
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 };
 
 await main();
+
+export {};

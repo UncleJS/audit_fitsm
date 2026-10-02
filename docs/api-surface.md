@@ -24,12 +24,14 @@ Base URL: `http://localhost:1261`
 ## Auth
 
 - `POST /auth/login`
+- `POST /auth/logout`
 - `GET /me`
 
 Behavior notes:
 
-- Browser clients use `sessionStorage` token key: `audit_fitsm_token`
-- Frontend routes redirect to `/login` when token is missing/invalid
+- Login sets an httpOnly `SameSite=Strict` cookie and still returns `accessToken` for API clients
+- Cookie-authenticated mutations require header `x-audit-fitsm: 1`
+- Frontend routes redirect to `/login` when `/me` is unauthorized
 
 [Go to TOC](#table-of-contents)
 

@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 const pad2 = (value: number): string => String(value).padStart(2, "0");
 
 export const formatDateOnly = (value?: string | null): string => {
@@ -29,6 +27,6 @@ export const formatLocalTimestamp = (value?: string | null): string => {
 
   return [
     `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`,
-    `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+    `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`,
   ].join(" ");
 };

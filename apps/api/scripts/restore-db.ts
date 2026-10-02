@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import JSZip from "jszip";
@@ -41,24 +40,11 @@ const main = async () => {
     throw new Error("Could not read SQL content from zip");
   }
 
-  const restore = Bun.spawnSync(
-    [
-      "mariadb",
-      "-h",
-      dbHost,
-      "-P",
-      dbPort,
-      "-u",
-      dbUser,
-      `-p${dbPassword}`,
-      dbName
-    ],
-    {
-      stdin: sqlText,
-      stdout: "pipe",
-      stderr: "pipe"
-    }
-  );
+  const restore = Bun.spawnSync(["mariadb", "-h", dbHost, "-P", dbPort, "-u", dbUser, `-p${dbPassword}`, dbName], {
+    stdin: new TextEncoder().encode(sqlText),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
 
   if (restore.exitCode !== 0) {
     const err = new TextDecoder().decode(restore.stderr);
@@ -70,11 +56,11 @@ const main = async () => {
       {
         ok: true,
         restoredFromZip: resolve(inputZip),
-        sqlEntry
+        sqlEntry,
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 };
 

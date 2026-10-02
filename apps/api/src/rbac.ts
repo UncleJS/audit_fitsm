@@ -1,10 +1,4 @@
-export const roleHierarchy = [
-  "viewer",
-  "auditor",
-  "lead_auditor",
-  "org_admin",
-  "system_admin"
-] as const;
+export const roleHierarchy = ["viewer", "auditor", "lead_auditor", "org_admin", "system_admin"] as const;
 
 export type RoleCode = (typeof roleHierarchy)[number];
 

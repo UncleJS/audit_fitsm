@@ -1,4 +1,3 @@
-// @ts-nocheck
 import type { Config } from "drizzle-kit";
 
 export default {
@@ -10,6 +9,6 @@ export default {
     port: Number(process.env.DB_PORT ?? 1262),
     user: process.env.DB_USER ?? "audit_app",
     password: process.env.DB_PASSWORD ?? "change_me",
-    database: process.env.DB_NAME ?? "audit_fitsm"
-  }
+    database: process.env.DB_NAME ?? "audit_fitsm",
+  },
 } satisfies Config;

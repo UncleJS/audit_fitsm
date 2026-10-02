@@ -1,4 +1,4 @@
-// @ts-nocheck
+import type { RowDataPacket } from "mysql2";
 import mysql from "mysql2/promise";
 import { config } from "../src/config";
 
@@ -12,7 +12,7 @@ const conn = await mysql.createConnection({
   port: config.db.port,
   user: config.db.user,
   password: config.db.password,
-  database: config.db.database
+  database: config.db.database,
 });
 
 await conn.beginTransaction();
@@ -22,17 +22,19 @@ try {
     `INSERT INTO organizations (name)
      VALUES (?)
      ON DUPLICATE KEY UPDATE updated_at = UTC_TIMESTAMP(3)`,
-    [orgName]
+    [orgName],
   );
 
-  const [orgRows] = await conn.query(
+  const [orgRows] = await conn.query<RowDataPacket[]>(
     "SELECT id FROM organizations WHERE name = ? AND archived_at IS NULL LIMIT 1",
-    [orgName]
+    [orgName],
   );
-  const orgId = Number(orgRows[0].id);
+  const orgRow = orgRows[0];
+  if (!orgRow) throw new Error("Organization bootstrap failed");
+  const orgId = Number(orgRow.id);
 
   const passwordHash = await Bun.password.hash(password, {
-    algorithm: "argon2id"
+    algorithm: "argon2id",
   });
 
   await conn.execute(
@@ -42,25 +44,27 @@ try {
        password_hash = VALUES(password_hash),
        display_name = VALUES(display_name),
        updated_at = UTC_TIMESTAMP(3)`,
-    [email, passwordHash, displayName]
+    [email, passwordHash, displayName],
   );
 
-  const [userRows] = await conn.query(
+  const [userRows] = await conn.query<RowDataPacket[]>(
     "SELECT id FROM users WHERE email = ? AND archived_at IS NULL LIMIT 1",
-    [email]
+    [email],
   );
-  const userId = Number(userRows[0].id);
+  const userRow = userRows[0];
+  if (!userRow) throw new Error("User bootstrap failed");
+  const userId = Number(userRow.id);
 
-  const [roleRows] = await conn.query(
-    "SELECT id, code FROM roles WHERE code IN ('system_admin','org_admin') AND archived_at IS NULL"
+  const [roleRows] = await conn.query<RowDataPacket[]>(
+    "SELECT id, code FROM roles WHERE code IN ('system_admin','org_admin') AND archived_at IS NULL",
   );
 
-  for (const role of roleRows as any[]) {
+  for (const role of roleRows) {
     await conn.execute(
       `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
        VALUES (?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE created_at = org_user_roles.created_at`,
-      [orgId, userId, role.id, userId]
+      [orgId, userId, role.id, userId],
     );
   }
 

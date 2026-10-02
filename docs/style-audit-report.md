@@ -1,27 +1,28 @@
-# Documentation Style Audit Report
+# Documentation style audit report
 
 ![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
 ![Docs](https://img.shields.io/badge/docs-audit-blue)
-![Result](https://img.shields.io/badge/result-8%2F9%20pass-yellow)
+![Result](https://img.shields.io/badge/result-pass-green)
 
-Audit timestamp (UTC): 2026-03-29
+Audit timestamp (UTC): 2026-10-02
 
 ## Table of Contents
 
 - [Scope and rules checked](#scope-and-rules-checked)
 - [Per-file results](#per-file-results)
 - [Findings](#findings)
-- [Remediation options](#remediation-options)
 - [License footer](#license-footer)
 
 ## Scope and rules checked
 
-Checked all `*.md` files in repository root and subdirectories for:
+Checked user-facing `*.md` files for:
 
 1. shields.io badge presence
 2. `## Table of Contents` section
 3. `[Go to TOC](#table-of-contents)` link in each major section
 4. `## License footer` section with CC BY text
+
+`AGENTS.md` is exempt. See `docs/documentation-style.md`.
 
 [Go to TOC](#table-of-contents)
 
@@ -29,31 +30,27 @@ Checked all `*.md` files in repository root and subdirectories for:
 
 | File | Badge | TOC | Go-to-TOC | License footer | Overall |
 |---|---|---|---|---|---|
-| `AGENTS.md` | ❌ | ❌ | ❌ | ❌ | **FAIL** |
-| `LICENSE.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
-| `README.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
-| `docs/TEMPLATE.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
-| `docs/api-surface.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
-| `docs/documentation-style.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
-| `docs/integration-testing.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
-| `docs/ods-operational-mapping.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
-| `docs/style-audit-report.md` | ✅ | ✅ | ✅ | ✅ | **PASS** |
+| `AGENTS.md` | exempt | exempt | exempt | exempt | **EXEMPT** |
+| `LICENSE.md` | yes | yes | yes | yes | **PASS** |
+| `README.md` | yes | yes | yes | yes | **PASS** |
+| `docs/TEMPLATE.md` | yes | yes | yes | yes | **PASS** |
+| `docs/README.md` | yes | yes | yes | yes | **PASS** |
+| `docs/api-surface.md` | yes | yes | yes | yes | **PASS** |
+| `docs/audit-workspace.md` | yes | yes | yes | yes | **PASS** |
+| `docs/ci-runbook.md` | yes | yes | yes | yes | **PASS** |
+| `docs/development-runtime.md` | yes | yes | yes | yes | **PASS** |
+| `docs/documentation-style.md` | yes | yes | yes | yes | **PASS** |
+| `docs/integration-testing.md` | yes | yes | yes | yes | **PASS** |
+| `docs/ods-operational-mapping.md` | yes | yes | yes | yes | **PASS** |
+| `docs/security-model.md` | yes | yes | yes | yes | **PASS** |
+| `docs/style-audit-report.md` | yes | yes | yes | yes | **PASS** |
+| `docs/ui-date-formatting.md` | yes | yes | yes | yes | **PASS** |
 
 [Go to TOC](#table-of-contents)
 
 ## Findings
 
-- **Pass rate:** 8 / 9 markdown files.
-- All user-facing project docs now conform to the style standard.
-- `AGENTS.md` is a machine-instruction file and currently does not follow the doc style format.
-
-[Go to TOC](#table-of-contents)
-
-## Remediation options
-
-Option A (recommended): Keep `AGENTS.md` as-is and classify it as an operational/system instruction file exempt from documentation style checks.
-
-Option B: Reformat `AGENTS.md` to match style standard (badges, TOC, section footers, license footer).
+User-facing docs match the style standard, including the pages added after the March 2026 audit. `AGENTS.md` stays exempt as a machine instruction file.
 
 [Go to TOC](#table-of-contents)
 

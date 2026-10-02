@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 type DateOnlyInputProps = {
@@ -18,7 +17,7 @@ export default function DateOnlyInput({
   onChange,
   disabled,
   required,
-  ariaLabel
+  ariaLabel,
 }: DateOnlyInputProps) {
   return (
     <div className="relative min-w-40">

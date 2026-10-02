@@ -18,13 +18,12 @@ const variantClasses: Record<ButtonVariant, string> = {
     "border border-slate-700 bg-slate-900/80 text-slate-100 hover:border-slate-500 hover:bg-slate-800 disabled:text-slate-500",
   ghost:
     "border border-transparent bg-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900/80 disabled:text-slate-500",
-  danger:
-    "border border-rose-400/60 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 disabled:text-rose-300/50"
+  danger: "border border-rose-400/60 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 disabled:text-rose-300/50",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
   sm: "h-8 px-3 text-xs",
-  md: "h-10 px-4 text-sm"
+  md: "h-10 px-4 text-sm",
 };
 
 export function Button({ className, variant = "primary", size = "md", active, children, ...props }: ButtonProps) {
@@ -35,7 +34,7 @@ export function Button({ className, variant = "primary", size = "md", active, ch
         sizeClasses[size],
         variantClasses[variant],
         active && "border-sky-300 bg-sky-400/20 text-sky-100",
-        className
+        className,
       )}
       {...props}
     >

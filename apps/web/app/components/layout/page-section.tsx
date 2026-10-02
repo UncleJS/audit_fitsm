@@ -9,7 +9,7 @@ export default function PageSection({
   action,
   children,
   className,
-  contentClassName
+  contentClassName,
 }: {
   title: string;
   description?: string;

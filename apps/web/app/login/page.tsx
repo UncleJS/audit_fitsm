@@ -1,52 +1,33 @@
-// @ts-nocheck
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
 import { LockKeyhole } from "lucide-react";
+import { type FormEvent, useEffect, useState } from "react";
 import PageShell from "../components/layout/page-shell";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
-
-const apiUrlFromEnv = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
-const defaultApiUrl = apiUrlFromEnv || "http://127.0.0.1:1261";
+import { apiFetch, ensureSession } from "../lib/api";
 
 export default function LoginPage() {
   const [mounted, setMounted] = useState(false);
-  const [apiUrl, setApiUrl] = useState(defaultApiUrl);
   const [email, setEmail] = useState("admin@example.com");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const resolvedApiUrl = apiUrlFromEnv || `${window.location.protocol}//${window.location.hostname}:1261`;
-    if (!apiUrlFromEnv) {
-      setApiUrl(resolvedApiUrl);
-    }
-
     let cancelled = false;
     const init = async () => {
-      const token = window.sessionStorage.getItem("audit_fitsm_token") || "";
-      if (token) {
-        try {
-          const meRes = await fetch(`${resolvedApiUrl}/me`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (meRes.ok) {
-            window.location.href = "/clients";
-            return;
-          }
-        } catch {
-          // network/auth failure -> force fresh login
+      try {
+        const me = await ensureSession();
+        if (cancelled) return;
+        if (me) {
+          window.location.href = "/clients";
+          return;
         }
-
-        window.sessionStorage.removeItem("audit_fitsm_token");
+      } catch {
+        // Show the form when the API cannot be reached.
       }
-
-      if (!cancelled) {
-        setMounted(true);
-      }
+      if (!cancelled) setMounted(true);
     };
 
     void init();
@@ -62,28 +43,17 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      const res = await fetch(`${apiUrl}/auth/login`, {
+      const res = await apiFetch("/auth/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
         setMessage(body.error ?? "Login failed.");
         return;
       }
 
-      const body = await res.json();
-      const token = String(body.accessToken ?? "");
-      if (!token) {
-        setMessage("Login failed: missing access token.");
-        return;
-      }
-
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem("audit_fitsm_token", token);
-      }
       window.location.href = "/clients";
     } finally {
       setSubmitting(false);
@@ -119,25 +89,52 @@ export default function LoginPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-semibold text-slate-50">Sign in</h1>
-                <p className="mt-2 text-sm text-slate-400">Access the FitSM audit dashboard, workspace, and admin tools.</p>
+                <p className="mt-2 text-sm text-slate-400">
+                  Access the FitSM audit dashboard, workspace, and admin tools.
+                </p>
               </div>
             </div>
 
             <form onSubmit={login} className="grid gap-4">
               <div className="grid gap-2">
-                <label htmlFor="email" className="text-sm font-medium text-slate-300">Email</label>
-                <input id="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" required />
+                <label htmlFor="email" className="text-sm font-medium text-slate-300">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="Email"
+                  type="email"
+                  required
+                />
               </div>
               <div className="grid gap-2">
-                <label htmlFor="password" className="text-sm font-medium text-slate-300">Password</label>
-                <input id="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" required />
+                <label htmlFor="password" className="text-sm font-medium text-slate-300">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Password"
+                  type="password"
+                  required
+                />
               </div>
               <Button type="submit" disabled={submitting} className="w-full justify-center">
                 {submitting ? "Signing in..." : "Login"}
               </Button>
             </form>
 
-            {message ? <div className="rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{message}</div> : null}
+            {message ? (
+              <div
+                role="alert"
+                className="rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-100"
+              >
+                {message}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </PageShell>

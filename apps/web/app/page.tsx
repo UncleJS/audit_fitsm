@@ -1,18 +1,16 @@
-// @ts-nocheck
 "use client";
 
-import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Building2, CalendarRange, FileText, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import AuditsSection from "./components/dashboard/audits-section";
 import ClientFocusSection from "./components/dashboard/client-focus";
 import NewAuditSheet from "./components/dashboard/new-audit-sheet";
 import StatCard from "./components/dashboard/stat-card";
 import TrendViewSection from "./components/dashboard/trend-view";
-import PageShell from "./components/layout/page-shell";
 import PageSection from "./components/layout/page-section";
-import { Button } from "./components/ui/button";
-import { Card, CardContent } from "./components/ui/card";
+import PageShell from "./components/layout/page-shell";
+import { apiBaseUrl, apiFetch, ensureSession } from "./lib/api";
 
 type ClientRow = { id: number; name: string };
 type AuditRow = {
@@ -37,15 +35,6 @@ type TrendRow = {
   total_requirements: number;
 };
 
-const apiUrlFromEnv = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
-const defaultApiUrl = apiUrlFromEnv || "http://127.0.0.1:1261";
-const demoToken = process.env.NEXT_PUBLIC_ENABLE_DEMO_AUTH === "1" ? process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "" : "";
-
-const authHeaders = (token: string, json = false) => ({
-  ...(json ? { "Content-Type": "application/json" } : {}),
-  ...(token ? { Authorization: `Bearer ${token}` } : {})
-});
-
 const sparkline = (values: number[]): string => {
   if (!values.length) return "—";
   const ticks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
@@ -63,7 +52,7 @@ const sparkline = (values: number[]): string => {
 
 export default function HomePage() {
   const [mounted, setMounted] = useState(false);
-  const [apiUrl, setApiUrl] = useState(defaultApiUrl);
+  const [bootError, setBootError] = useState("");
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [authToken, setAuthToken] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
@@ -71,7 +60,9 @@ export default function HomePage() {
   const [trendRows, setTrendRows] = useState<TrendRow[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "in_progress" | "completed">("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [sortBy, setSortBy] = useState<"updated_desc" | "audit_date_desc" | "audit_date_asc" | "name_asc" | "status_asc">("updated_desc");
+  const [sortBy, setSortBy] = useState<
+    "updated_desc" | "audit_date_desc" | "audit_date_asc" | "name_asc" | "status_asc"
+  >("updated_desc");
   const [statusSavingByAuditId, setStatusSavingByAuditId] = useState<Record<string, boolean>>({});
   const [newAuditName, setNewAuditName] = useState("");
   const [newAuditDate, setNewAuditDate] = useState("");
@@ -82,19 +73,16 @@ export default function HomePage() {
   const tokenMissing = useMemo(() => !authToken, [authToken]);
 
   const loadClients = async () => {
-    const res = await fetch(`${apiUrl}/clients`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const res = await apiFetch(`/clients`, {
+      cache: "no-store",
     });
 
     if (!res.ok) {
-      if (res.status === 401 && typeof window !== "undefined") {
-        window.sessionStorage.removeItem("audit_fitsm_token");
+      if (res.status === 401) {
         setAuthToken("");
-        window.location.href = "/login";
         return;
       }
-      setMessage("Unable to load clients. Check token or permissions.");
+      setMessage("Unable to load clients. Check your session or permissions.");
       setClients([]);
       return;
     }
@@ -107,13 +95,13 @@ export default function HomePage() {
   };
 
   const loadAudits = async (clientId: number) => {
-    const res = await fetch(`${apiUrl}/orgs/${clientId}/audits`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const res = await apiFetch(`/orgs/${clientId}/audits`, {
+      cache: "no-store",
     });
 
     if (!res.ok) {
       setAudits([]);
+      setMessage("Unable to load audits for this client.");
       return;
     }
 
@@ -121,13 +109,13 @@ export default function HomePage() {
   };
 
   const loadTrends = async (clientId: number) => {
-    const res = await fetch(`${apiUrl}/orgs/${clientId}/trends`, {
-      headers: authHeaders(authToken),
-      cache: "no-store"
+    const res = await apiFetch(`/orgs/${clientId}/trends`, {
+      cache: "no-store",
     });
 
     if (!res.ok) {
       setTrendRows([]);
+      setMessage("Unable to load trends for this client.");
       return;
     }
 
@@ -135,22 +123,35 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!apiUrlFromEnv) {
-      setApiUrl(`${window.location.protocol}//${window.location.hostname}:1261`);
-    }
-    const storedToken = window.sessionStorage.getItem("audit_fitsm_token") || "";
-    setAuthToken(storedToken || demoToken);
-    setNewAuditDate(new Date().toISOString().slice(0, 10));
-    setMounted(true);
+    let cancelled = false;
+    void (async () => {
+      setNewAuditDate(new Date().toISOString().slice(0, 10));
+      try {
+        const session = await ensureSession();
+        if (cancelled) return;
+        if (!session) {
+          window.location.href = "/login";
+          return;
+        }
+        setAuthToken("session");
+        setMounted(true);
+      } catch {
+        if (cancelled) return;
+        setBootError("Unable to reach the API. The workspace could not be loaded.");
+        setMounted(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || bootError) return;
     if (!authToken && typeof window !== "undefined") {
       window.location.href = "/login";
     }
-  }, [mounted, authToken]);
+  }, [mounted, authToken, bootError]);
 
   useEffect(() => {
     if (!authToken) {
@@ -173,6 +174,18 @@ export default function HomePage() {
       <PageShell>
         <PageSection title="Audit FitSM Workspace" description="Loading your workspace." eyebrow="Dashboard">
           <p className="text-sm text-slate-400">Preparing clients, audits, and trends…</p>
+        </PageSection>
+      </PageShell>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <PageShell>
+        <PageSection title="Audit FitSM Workspace" description="The dashboard could not be loaded." eyebrow="Dashboard">
+          <p role="alert" className="text-sm text-rose-200">
+            {bootError}
+          </p>
         </PageSection>
       </PageShell>
     );
@@ -218,7 +231,7 @@ export default function HomePage() {
           avgSum: 0,
           avgCount: 0,
           scoredReqSum: 0,
-          totalReqSum: 0
+          totalReqSum: 0,
         });
       }
 
@@ -241,7 +254,7 @@ export default function HomePage() {
           ...item,
           averageCapability,
           name: meta?.name ?? `Audit #${item.auditId}`,
-          status: meta?.status ?? "unknown"
+          status: meta?.status ?? "unknown",
         };
       })
       .sort((a, b) => String(a.auditDate).localeCompare(String(b.auditDate)));
@@ -251,10 +264,12 @@ export default function HomePage() {
     trendByAudit
       .filter((item) => item.averageCapability !== null)
       .slice(-10)
-      .map((item) => Number(item.averageCapability))
+      .map((item) => Number(item.averageCapability)),
   );
 
-  const trendLatest = [...trendByAudit].sort((a, b) => String(b.auditDate).localeCompare(String(a.auditDate))).slice(0, 6);
+  const trendLatest = [...trendByAudit]
+    .sort((a, b) => String(b.auditDate).localeCompare(String(a.auditDate)))
+    .slice(0, 6);
   const draftCount = audits.filter((audit) => audit.status === "draft").length;
   const inProgressCount = audits.filter((audit) => audit.status === "in_progress").length;
   const completedCount = audits.filter((audit) => audit.status === "completed").length;
@@ -279,10 +294,9 @@ export default function HomePage() {
     setStatusSavingByAuditId((prev) => ({ ...prev, [key]: true }));
 
     try {
-      const res = await fetch(`${apiUrl}/audits/${auditId}/status`, {
+      const res = await apiFetch(`/audits/${auditId}/status`, {
         method: "PUT",
-        headers: authHeaders(authToken, true),
-        body: JSON.stringify({ status: nextStatus })
+        body: JSON.stringify({ status: nextStatus }),
       });
 
       if (!res.ok) {
@@ -307,9 +321,7 @@ export default function HomePage() {
       return;
     }
 
-    const res = await fetch(`${apiUrl}/orgs/${selectedClientId}/exports/csv?report=trends`, {
-      headers: authHeaders(authToken)
-    });
+    const res = await apiFetch(`/orgs/${selectedClientId}/exports/csv?report=trends`);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setMessage(body.error ?? "CSV download failed.");
@@ -335,14 +347,13 @@ export default function HomePage() {
       return;
     }
 
-    const res = await fetch(`${apiUrl}/orgs/${selectedClientId}/audits`, {
+    const res = await apiFetch(`/orgs/${selectedClientId}/audits`, {
       method: "POST",
-      headers: authHeaders(authToken, true),
       body: JSON.stringify({
         name: newAuditName,
         auditDate: newAuditDate,
-        certGoalLevel: Number(newAuditCertGoalLevel || "3")
-      })
+        certGoalLevel: Number(newAuditCertGoalLevel || "3"),
+      }),
     });
 
     if (!res.ok) {
@@ -372,7 +383,7 @@ export default function HomePage() {
               date: newAuditDate,
               setDate: setNewAuditDate,
               certGoalLevel: newAuditCertGoalLevel,
-              setCertGoalLevel: setNewAuditCertGoalLevel
+              setCertGoalLevel: setNewAuditCertGoalLevel,
             }}
           />
         }
@@ -387,19 +398,34 @@ export default function HomePage() {
         <div className="grid gap-4 rounded-2xl border border-slate-800/80 bg-slate-950/45 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
           <div className="space-y-2">
             <p className="text-sm font-medium text-slate-300">API docs</p>
-            <p className="text-sm text-slate-400">Open the backend OpenAPI docs directly from the current environment.</p>
+            <p className="text-sm text-slate-400">
+              Open the backend OpenAPI docs directly from the current environment.
+            </p>
           </div>
-          <Link href={`${apiUrl}/docs`} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-100 hover:border-slate-500">
+          <Link
+            href={`${apiBaseUrl()}/docs`}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-100 hover:border-slate-500"
+          >
             Open /docs <ArrowRight className="size-4" />
           </Link>
         </div>
 
         {message ? (
-          <div className="rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">{message}</div>
+          <div
+            role="status"
+            className="rounded-2xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 text-sm text-sky-100"
+          >
+            {message}
+          </div>
         ) : null}
       </PageSection>
 
-      <ClientFocusSection clients={clients} selectedClientId={selectedClientId} setSelectedClientId={setSelectedClientId} recentlyUpdated={recentlyUpdated} />
+      <ClientFocusSection
+        clients={clients}
+        selectedClientId={selectedClientId}
+        setSelectedClientId={setSelectedClientId}
+        recentlyUpdated={recentlyUpdated}
+      />
 
       <AuditsSection
         filters={{ statusFilter, setStatusFilter, searchTerm, setSearchTerm, sortBy, setSortBy }}
@@ -409,7 +435,7 @@ export default function HomePage() {
           nextStatusForQuickAction,
           updateAuditStatus,
           quickActionLabel,
-          onOpenAuditSheet: () => setAuditSheetOpen(true)
+          onOpenAuditSheet: () => setAuditSheetOpen(true),
         }}
       />
 
