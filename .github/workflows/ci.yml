@@ -7,19 +7,27 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+
 jobs:
   static:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.2.22
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: ShellCheck (preinstalled on ubuntu-latest)
+        run: shellcheck -x scripts/*.sh
 
       - name: Enforce UI date-input policy
         run: bash ./scripts/check-ui-date-inputs.sh
@@ -43,18 +51,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Install Podman
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman
-
+      # Podman is preinstalled on ubuntu-latest runners; nothing is installed here.
       - name: Show Podman version
         run: podman --version
 
+      # Credentials (DB, JWT, admin) are generated randomly per run by the script.
       - name: Run strict CI checks (container-first)
         env:
           TEST_ADMIN_EMAIL: admin@example.com
-          TEST_ADMIN_PASSWORD: ChangeMe123!
         run: bash ./scripts/ci-strict.sh

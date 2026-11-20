@@ -1,0 +1,33 @@
+[Unit]
+Description=Audit FitSM Development Container
+After=network-online.target audit-fitsm-pod-pod.service audit-fitsm-db.service
+Wants=network-online.target
+Requires=audit-fitsm-pod-pod.service audit-fitsm-db.service
+
+[Container]
+ContainerName=audit-fitsm-dev
+Pod=audit-fitsm-pod.pod
+Image=audit-fitsm-dev.build
+Label=io.audit-fitsm.project=audit-fitsm
+WorkingDir=/workspace
+Environment=TZ=UTC
+Environment=DB_HOST=127.0.0.1
+Environment=DB_PORT=3306
+Environment=DB_USER=audit_app
+Environment=DB_NAME=audit_fitsm
+Environment=APP_PORT=1261
+Environment=EXPORTS_DIR=/workspace/data/exports
+Environment=BACKUPS_DIR=/workspace/data/backups
+Secret=audit-fitsm-db-password,type=env,target=DB_PASSWORD
+Secret=audit-fitsm-jwt-secret,type=env,target=JWT_SECRET
+Volume=audit-fitsm-dev.volume:/workspace/.dev-volume:Z,U
+Volume=audit-fitsm-bun-cache.volume:/home/app/.bun/install/cache:Z,U
+Volume=audit-fitsm-exports.volume:/workspace/data/exports:Z,U
+Volume=audit-fitsm-backups.volume:/workspace/data/backups:Z,U
+Exec=sh /workspace/scripts/dev-entrypoint.sh
+
+[Service]
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=default.target

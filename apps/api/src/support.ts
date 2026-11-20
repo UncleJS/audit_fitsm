@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile as readFileFs, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -5,12 +7,12 @@ import type { RowDataPacket } from "mysql2";
 import { z } from "zod";
 import { config } from "./config";
 import { rowsToCsv } from "./csv";
-import { getDb } from "./db";
+import { getDb, isDuplicateKeyError, type Queryable, withTransaction } from "./db";
 import { contentDispositionAttachment, resolveExportPath, safeFileSegment } from "./paths";
 import { buildAuditPdfReport } from "./pdf-report";
-import { checkRateLimit, clientAddress } from "./rate-limit";
+import { checkProtectedRateLimit, checkRateLimit, clientAddress } from "./rate-limit";
 import { hasRole, type RoleCode } from "./rbac";
-import { clearSessionCookieHeader, extractBearer, readSessionCookie, sessionCookieHeader } from "./session-cookie";
+import { clearSessionCookieHeader, readSessionCookie, sessionCookieHeader } from "./session-cookie";
 import type { AuthPayload, AuthVia } from "./types";
 
 export const insertIdOf = (result: unknown): number => {
@@ -30,6 +32,7 @@ export const affectedRowsOf = (result: unknown): number => {
 export const anonymousSession = {
   auth: null as AuthPayload | null,
   authVia: null as AuthVia | null,
+  sessionExp: null as number | null,
 };
 
 export const claimRecord = (payload: unknown): Record<string, unknown> | null => {
@@ -49,8 +52,10 @@ export const openApiDoc = JSON.parse(await readFileFs(new URL("../openapi/openap
 
 export const db = getDb();
 export const corsAllowedOrigins = new Set(config.cors.allowedOrigins);
-export let tokenVersionColumnExistsPromise: Promise<boolean> | null = null;
-export const tableExistsPromiseByName = new Map<string, Promise<boolean>>();
+// Only successful schema lookups are cached. A failed lookup is forgotten so a transient DB error cannot
+// permanently disable session revocation or audit events.
+let tokenVersionColumnExistsPromise: Promise<boolean> | null = null;
+const tableExistsPromiseByName = new Map<string, Promise<boolean>>();
 
 export const swaggerCsp = [
   "default-src 'self'",
@@ -64,39 +69,46 @@ export const swaggerCsp = [
 export const defaultCsp = "default-src 'self'; frame-ancestors 'none'";
 
 export const hasTable = async (tableName: string): Promise<boolean> => {
-  if (!tableExistsPromiseByName.has(tableName)) {
-    tableExistsPromiseByName.set(
-      tableName,
-      db
-        .query<RowDataPacket[]>(
-          `SELECT 1
-           FROM information_schema.TABLES
-           WHERE TABLE_SCHEMA = ?
-             AND TABLE_NAME = ?
-           LIMIT 1`,
-          [config.db.database, tableName],
-        )
-        .then(([rows]) => rows.length > 0)
-        .catch(() => false),
-    );
+  let pending = tableExistsPromiseByName.get(tableName);
+  if (!pending) {
+    pending = db
+      .query<RowDataPacket[]>(
+        `SELECT 1
+         FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = ?
+           AND TABLE_NAME = ?
+         LIMIT 1`,
+        [config.db.database, tableName],
+      )
+      .then(([rows]) => rows.length > 0);
+    tableExistsPromiseByName.set(tableName, pending);
+    pending.catch(() => {
+      tableExistsPromiseByName.delete(tableName);
+    });
   }
 
-  return tableExistsPromiseByName.get(tableName)!;
+  return pending;
 };
 
+/** Rejects (and is not cached) on DB errors; callers must fail closed. */
 export const hasTokenVersionColumn = async (): Promise<boolean> => {
-  tokenVersionColumnExistsPromise ??= db
-    .query<RowDataPacket[]>(
-      `SELECT 1
-       FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = ?
-         AND TABLE_NAME = 'users'
-         AND COLUMN_NAME = 'token_version'
-       LIMIT 1`,
-      [config.db.database],
-    )
-    .then(([rows]) => rows.length > 0)
-    .catch(() => false);
+  if (!tokenVersionColumnExistsPromise) {
+    const pending = db
+      .query<RowDataPacket[]>(
+        `SELECT 1
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = ?
+           AND TABLE_NAME = 'users'
+           AND COLUMN_NAME = 'token_version'
+         LIMIT 1`,
+        [config.db.database],
+      )
+      .then(([rows]) => rows.length > 0);
+    tokenVersionColumnExistsPromise = pending;
+    pending.catch(() => {
+      if (tokenVersionColumnExistsPromise === pending) tokenVersionColumnExistsPromise = null;
+    });
+  }
 
   return tokenVersionColumnExistsPromise;
 };
@@ -113,9 +125,9 @@ export const buildOrgRoles = (roleRows: RowDataPacket[]): Record<string, string[
   return orgRoles;
 };
 
-export const revokeUserSessions = async (userId: number): Promise<void> => {
+export const revokeUserSessions = async (userId: number, executor: Queryable = db): Promise<void> => {
   if (await hasTokenVersionColumn()) {
-    await db.execute(
+    await executor.execute(
       `UPDATE users
        SET token_version = token_version + 1,
            updated_at = UTC_TIMESTAMP(3)
@@ -125,7 +137,7 @@ export const revokeUserSessions = async (userId: number): Promise<void> => {
     return;
   }
 
-  await db.execute(
+  await executor.execute(
     `UPDATE users
      SET updated_at = UTC_TIMESTAMP(3)
      WHERE id = ? AND archived_at IS NULL`,
@@ -141,12 +153,13 @@ export const recordAuditEvent = async (
   newValue: unknown,
   entityType: "audit" | "detail" | "conclusion" | "status" | "assessment" = "audit",
   entityKey: string | null = null,
+  executor: Queryable = db,
 ): Promise<void> => {
   if (!(await hasTable("audit_events"))) {
     return;
   }
 
-  await db.execute(
+  await executor.execute(
     `INSERT INTO audit_events
      (audit_id, event_type, entity_type, entity_key, old_value_json, new_value_json, actor_user_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -187,9 +200,9 @@ export const applyCorsHeaders = (set: { headers: Record<string, string | number>
   set.headers["Access-Control-Allow-Origin"] = origin;
   set.headers["Access-Control-Allow-Credentials"] = "true";
   set.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
-  set.headers["Access-Control-Allow-Headers"] = "authorization,content-type,x-audit-fitsm";
+  set.headers["Access-Control-Allow-Headers"] = "content-type,x-audit-fitsm";
   set.headers["Access-Control-Max-Age"] = "86400";
-  set.headers["Vary"] = "Origin";
+  set.headers.Vary = "Origin";
 };
 
 export const hasOrgRole = (auth: AuthPayload | null, orgId: number, minimumRole: RoleCode): boolean => {
@@ -307,9 +320,16 @@ export const fileTs = (): string =>
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}Z$/, "Z");
 
+export const MAX_LONG_TEXT = 20_000;
+export const MAX_NAME_TEXT = 255;
+export const MAX_ITEMS = 1_000;
+
+const longText = z.string().max(MAX_LONG_TEXT);
+const codeText = z.string().trim().min(1).max(MAX_NAME_TEXT);
+
 export const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z.string().email().max(MAX_NAME_TEXT),
+  password: z.string().min(1).max(1024),
 });
 
 export const createClientSchema = z.object({
@@ -327,19 +347,71 @@ export const updateStatusSchema = z.object({
 });
 
 export const createOrgUserSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
+  email: z.string().email().max(MAX_NAME_TEXT),
+  password: z.string().min(8).max(1024),
   displayName: z.string().trim().min(2).max(191),
   roles: z.array(z.string().min(1)).min(1),
 });
 
 export const updateOrgUserRolesSchema = z.object({
-  roles: z.array(z.string().min(1)).min(0),
+  roles: z.array(z.string().min(1).max(64)).min(0).max(20),
 });
 
-export type { AuthPayload, AuthVia, RoleCode, RowDataPacket };
+const goalLevel = z.coerce.number().int().min(1).max(5);
+
+export const scopeTargetsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        processCode: codeText,
+        certGoalLevel: goalLevel,
+        customGoalLevel: goalLevel.nullable().optional(),
+        scopeCode: z.enum(["IN_SCOPE", "OUT_OF_SCOPE"]),
+      }),
+    )
+    .min(1)
+    .max(MAX_ITEMS),
+});
+
+export const assessmentsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        requirementCode: codeText,
+        scoreLabel: z.string().max(MAX_NAME_TEXT),
+        commentText: longText.nullable().optional(),
+        evidenceText: longText.nullable().optional(),
+      }),
+    )
+    .min(1)
+    .max(MAX_ITEMS),
+});
+
+export const assessmentNoteSchema = z.object({
+  noteText: longText.refine((value) => value.trim().length > 0, { message: "noteText is required" }),
+});
+
+export const auditDetailsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        fieldKey: codeText,
+        responseText: longText.nullable().optional(),
+        noteText: longText.nullable().optional(),
+      }),
+    )
+    .min(1)
+    .max(MAX_ITEMS),
+});
+
+export const auditConclusionSchema = z.object({
+  conclusionText: longText.nullable().optional(),
+});
+
+export type { AuthPayload, AuthVia, Queryable, RoleCode, RowDataPacket };
 export {
   buildAuditPdfReport,
+  checkProtectedRateLimit,
   checkRateLimit,
   clearSessionCookieHeader,
   clientAddress,
@@ -347,8 +419,8 @@ export {
   contentDispositionAttachment,
   createHash,
   dirname,
-  extractBearer,
   hasRole,
+  isDuplicateKeyError,
   join,
   mkdir,
   randomUUID,
@@ -358,6 +430,7 @@ export {
   rowsToCsv,
   safeFileSegment,
   sessionCookieHeader,
+  withTransaction,
   writeFile,
   z,
 };

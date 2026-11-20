@@ -1,0 +1,22 @@
+[Unit]
+Description=Audit FitSM phpMyAdmin (opt-in, installed by install.sh --with-phpmyadmin)
+After=network-online.target audit-fitsm-pod-pod.service audit-fitsm-db.service
+Wants=network-online.target
+Requires=audit-fitsm-pod-pod.service audit-fitsm-db.service
+
+[Container]
+ContainerName=audit-fitsm-phpmyadmin
+Pod=audit-fitsm-pod.pod
+Image=docker.io/library/phpmyadmin:5.2.3
+Label=io.audit-fitsm.project=audit-fitsm
+Environment=TZ=UTC
+# Users log in with their own MariaDB credentials; no secrets are baked in.
+Environment=PMA_HOST=127.0.0.1
+Environment=PMA_PORT=3306
+Environment=UPLOAD_LIMIT=128M
+
+[Service]
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

@@ -1,6 +1,12 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 export const SESSION_COOKIE = "audit_fitsm_session";
 
-const secureAttribute = (): string => (process.env.NODE_ENV === "production" ? "; Secure" : "");
+/** Production and staging are served over HTTPS, so the session cookie must never travel in clear text there. */
+export const isSecureCookieEnv = (nodeEnv: string | undefined = process.env.NODE_ENV): boolean =>
+  nodeEnv === "production" || nodeEnv === "staging";
+
+const secureAttribute = (): string => (isSecureCookieEnv() ? "; Secure" : "");
 
 export const sessionCookieHeader = (token: string, maxAgeSec: number): string =>
   `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.max(0, Math.floor(maxAgeSec))}${secureAttribute()}`;
@@ -28,11 +34,4 @@ export const readSessionCookie = (request: Request): string | null => {
   }
 
   return null;
-};
-
-export const extractBearer = (authorization?: string | null): string | null => {
-  if (!authorization) return null;
-  if (!authorization.startsWith("Bearer ")) return null;
-  const token = authorization.slice(7).trim();
-  return token || null;
 };

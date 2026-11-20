@@ -1,0 +1,13 @@
+[Unit]
+Description=Build Audit FitSM dev image
+
+[Build]
+ImageTag=localhost/audit-fitsm-dev:latest
+# install.sh replaces @PROJECT_ROOT@ with the repo checkout path when it
+# copies this unit to ~/.config/containers/systemd/.
+SetWorkingDirectory=@PROJECT_ROOT@
+File=Containerfile
+Label=io.audit-fitsm.project=audit-fitsm
+
+[Service]
+TimeoutStartSec=1800

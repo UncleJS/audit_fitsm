@@ -1,37 +1,40 @@
 # <Document Title>
 
-![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
-![Docs](https://img.shields.io/badge/docs-standardized-blue)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](../LICENSE) [![CI](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml)
 
 <Short document purpose>
 
 ## Table of Contents
 
-- [Section 1](#section-1)
-- [Section 2](#section-2)
-- [Section 3](#section-3)
-- [License footer](#license-footer)
+- [Overview](#overview)
+- [Details](#details)
+  - [Topic](#topic)
+- [References](#references)
 
-## Section 1
-
-<content>
-
-[Go to TOC](#table-of-contents)
-
-## Section 2
+## Overview
 
 <content>
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
-## Section 3
+## Details
+
+<intro, or delete this paragraph and its back link>
+
+[↑ Back to TOC](#table-of-contents)
+
+### Topic
 
 <content>
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
-## License footer
+## References
 
-© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
+<content>
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
+
+---
+
+© 2026 UncleJS — Licensed under [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.txt)

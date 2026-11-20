@@ -1,69 +1,59 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 UncleJS
+#
+# Remove stale runtime state (primary + CI containers/pods, CI volumes, built
+# images) without touching Quadlet units or secrets. For a full cleanup use
+# scripts/uninstall.sh.
 set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# shellcheck source=scripts/common.sh
+source scripts/common.sh
 
-source "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+usage() {
+  printf "Usage: scripts/clean-old-runtime.sh [--purge-data]\n"
+  printf "  default: stop services; remove pods, containers, CI volumes, built images\n"
+  printf "  --purge-data: also remove primary named volumes (destructive)\n"
+}
+
+PURGE_DATA="false"
+case "${1:-}" in
+  "") ;;
+  --purge-data) PURGE_DATA="true" ;;
+  -h|--help) usage; exit 0 ;;
+  *) printf "Unknown option: %s\n" "${1}" >&2; usage >&2; exit 2 ;;
+esac
 
 require_prereqs
 
-PURGE_DATA="false"
-if [[ "${1:-}" == "--purge-data" ]]; then
-  PURGE_DATA="true"
-elif [[ "${1:-}" == "--help" ]]; then
-  printf "Usage: scripts/clean-old-runtime.sh [--purge-data]\n"
-  printf "  default: remove legacy/CI pods, containers, CI volumes, CI image\n"
-  printf "  --purge-data: also remove primary named volumes (destructive)\n"
-  exit 0
-elif [[ -n "${1:-}" ]]; then
-  printf "Unknown option: %s\n" "${1}" >&2
-  printf "Usage: scripts/clean-old-runtime.sh [--purge-data]\n" >&2
-  exit 1
-fi
-
-PODS=(
-  "${PROJECT_PREFIX}-ci"
-)
-
-CONTAINERS=(
-  "${PROJECT_PREFIX}-dev-ci"
-  "${PROJECT_PREFIX}-db-ci"
-)
-
-CI_VOLUMES=(
-  "${PROJECT_PREFIX}-dev-ci"
-  "${PROJECT_PREFIX}-db-ci"
-  "${PROJECT_PREFIX}-bun-cache-ci"
-  "${PROJECT_PREFIX}-exports-ci"
-  "${PROJECT_PREFIX}-backups-ci"
-)
-
-printf "Stopping user services (ignore if unavailable)...\n"
+log "stopping services"
 stop_services
+reset_failed_services
 
-printf "Removing primary runtime...\n"
-remove_primary_runtime
-
-printf "Removing CI pods...\n"
-for pod in "${PODS[@]}"; do
+log "removing pods and containers"
+for ctr in "${ALL_CONTAINERS[@]}"; do
+  podman rm -f -v "${ctr}" >/dev/null 2>&1 || true
+done
+for pod in "${ALL_PODS[@]}"; do
   podman pod rm -f "${pod}" >/dev/null 2>&1 || true
 done
 
-printf "Removing CI containers...\n"
-for ctr in "${CONTAINERS[@]}"; do
-  podman rm -f "${ctr}" >/dev/null 2>&1 || true
-done
-
-printf "Removing CI volumes...\n"
+log "removing CI volumes"
 for vol in "${CI_VOLUMES[@]}"; do
   podman volume rm -f "${vol}" >/dev/null 2>&1 || true
 done
 
-printf "Removing dev image tags...\n"
-remove_primary_images
-podman image rm -f "localhost/${PROJECT_PREFIX}-dev:ci" >/dev/null 2>&1 || true
+log "removing built images"
+for image in "${BUILT_IMAGES[@]}"; do
+  podman image rm -f "${image}" >/dev/null 2>&1 || true
+done
+podman image prune -f --filter "label=${PROJECT_LABEL}" >/dev/null 2>&1 || true
 
 if [[ "${PURGE_DATA}" == "true" ]]; then
-  printf "Purging primary data volumes...\n"
-  purge_primary_volumes
+  log "purging primary data volumes"
+  for vol in "${VOLUME_NAMES[@]}"; do
+    podman volume rm -f "${vol}" >/dev/null 2>&1 || true
+  done
 fi
 
-printf "Runtime cleanup completed.\n"
+log "runtime cleanup completed"

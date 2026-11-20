@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import { spawnSync } from "node:child_process";
 import type { RowDataPacket } from "mysql2";
 import { config } from "../src/config";
@@ -100,7 +102,7 @@ const main = async () => {
   if (mode === "extended" || mode === "strict") {
     const loginRes = await fetch(`${apiBase}/auth/login`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-audit-fitsm": "1" },
       body: JSON.stringify({ email: adminEmail, password: adminPassword }),
       signal: AbortSignal.timeout(7000),
     });
@@ -108,14 +110,14 @@ const main = async () => {
       fail(`Auth login failed: ${loginRes.status} ${await loginRes.text()}`);
     }
 
-    const loginJson = await loginRes.json();
-    const token = String(loginJson?.accessToken ?? "");
-    if (!token) {
-      fail("Auth login returned empty accessToken");
+    // The session lives only in the HttpOnly cookie; forward its name=value pair to /me.
+    const sessionCookie = (loginRes.headers.get("set-cookie") ?? "").split(";")[0]?.trim() ?? "";
+    if (!sessionCookie.startsWith("audit_fitsm_session=") || sessionCookie === "audit_fitsm_session=") {
+      fail("Auth login did not set a session cookie");
     }
 
     const meRes = await fetch(`${apiBase}/me`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { cookie: sessionCookie },
       signal: AbortSignal.timeout(7000),
     });
     if (!meRes.ok) {

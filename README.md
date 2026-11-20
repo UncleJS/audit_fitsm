@@ -1,111 +1,167 @@
 # Audit FitSM
 
-![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
-![Frontend: Next.js](https://img.shields.io/badge/frontend-Next.js-000000?logo=nextdotjs)
-![API: Elysia](https://img.shields.io/badge/api-Elysia-1f2937)
-![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-black)
-![Database: MariaDB](https://img.shields.io/badge/database-MariaDB-003545)
-![Container: Podman](https://img.shields.io/badge/container-Podman-892CA0?logo=podman)
-![Mode: rootless](https://img.shields.io/badge/mode-rootless-2ea44f)
-![DB Admin: phpMyAdmin](https://img.shields.io/badge/db_admin-phpMyAdmin-6C78AF)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE) [![CI](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml) [![Bun 1.2.22](https://img.shields.io/badge/Bun-1.2.22-000000?logo=bun)](https://bun.sh) [![Next.js 15](https://img.shields.io/badge/Next.js-15-000000?logo=nextdotjs)](https://nextjs.org) [![API: Elysia](https://img.shields.io/badge/API-Elysia-1f2937)](https://elysiajs.com) [![MariaDB 12.3 LTS](https://img.shields.io/badge/MariaDB-12.3_LTS-003545?logo=mariadb)](https://mariadb.org) [![Podman: rootless](https://img.shields.io/badge/Podman-rootless_+_Quadlet-892CA0?logo=podman)](https://podman.io)
 
-
-Audit FitSM is a purpose-built tool designed to support organizations in conducting efficient, structured, and repeatable audits aligned with the FitSM framework. FitSM is a lightweight, pragmatic service management framework designed to support IT service management (ITSM) in a simple and effective way, making it particularly suitable for small to medium-sized organizations or teams seeking to implement best practices without the overhead of more complex frameworks.
-
-The Audit FitSM tool streamlines the audit process by providing a centralized platform for managing audit criteria, capturing evidence, tracking findings, and generating reports. It enables auditors to work through FitSM requirements systematically, ensuring consistency and completeness across all assessments. By digitizing the audit workflow, the tool reduces manual effort, minimizes errors, and improves overall audit quality.
-
-Key features include predefined FitSM audit checklists, customizable assessment templates, and structured scoring mechanisms to evaluate compliance levels. Auditors can record observations, attach supporting documentation, and classify findings based on severity and impact. The tool also facilitates collaboration between auditors and client stakeholders by allowing shared visibility into audit progress and results.
-
-In addition, Audit FitSM provides reporting capabilities that translate audit findings into clear, actionable insights. These reports help organizations understand their current maturity level, identify gaps, and prioritize improvement initiatives. Over time, the tool can support trend analysis, enabling organizations to track their progress toward achieving and maintaining FitSM compliance.
-
-Designed with usability and practicality in mind, Audit FitSM aligns with the core philosophy of FitSM: delivering effective service management with minimal complexity. It empowers auditors and organizations alike to focus on meaningful improvements rather than administrative overhead, ultimately enhancing service quality and operational efficiency.
+Audit FitSM is a tool for running efficient, structured and repeatable audits against the [FitSM](https://www.fitsm.eu/) service management framework.
 
 ## Table of Contents
 
-- [Audit FitSM](#audit-fitsm)
-  - [Table of Contents](#table-of-contents)
-  - [Highlights](#highlights)
-  - [Ports](#ports)
-  - [Prerequisites](#prerequisites)
-  - [Project layout](#project-layout)
-  - [Documentation index](#documentation-index)
-  - [Quick start](#quick-start)
-  - [Daily workflow](#daily-workflow)
-  - [Audit workspace save behavior](#audit-workspace-save-behavior)
-  - [Development runtime model](#development-runtime-model)
-  - [Authentication and authorization](#authentication-and-authorization)
-  - [API and OpenAPI docs](#api-and-openapi-docs)
-  - [Health checks and testing](#health-checks-and-testing)
-  - [Management scripts](#management-scripts)
-  - [Operational notes](#operational-notes)
-  - [License footer](#license-footer)
+- [Overview](#overview)
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Ports](#ports)
+- [Prerequisites](#prerequisites)
+- [Project layout](#project-layout)
+- [Documentation index](#documentation-index)
+- [Quick start](#quick-start)
+- [Lifecycle scripts](#lifecycle-scripts)
+  - [Core lifecycle](#core-lifecycle)
+  - [Uninstall and cleanup](#uninstall-and-cleanup)
+  - [Database and data](#database-and-data)
+  - [Diagnostics and checks](#diagnostics-and-checks)
+  - [Package aliases](#package-aliases)
+- [Upgrading an existing install](#upgrading-an-existing-install)
+- [Daily workflow](#daily-workflow)
+- [Audit workspace save behavior](#audit-workspace-save-behavior)
+- [Development runtime model](#development-runtime-model)
+- [Authentication and authorization](#authentication-and-authorization)
+- [API and OpenAPI docs](#api-and-openapi-docs)
+- [Health checks and testing](#health-checks-and-testing)
+- [Time zones](#time-zones)
+- [Operational notes](#operational-notes)
+- [License](#license)
+
+## Overview
+
+FitSM is a lightweight, pragmatic service management framework for IT service management (ITSM). It suits small and medium-sized organizations or teams that want good practice without the overhead of heavier frameworks.
+
+Audit FitSM gives auditors one place to manage audit criteria, capture evidence, track findings and produce reports. Auditors work through the FitSM requirements systematically, so assessments stay consistent and complete. Digitizing the workflow reduces manual effort and errors.
+
+The tool ships the FitSM audit checklist, per-process scope and certification targets, and structured capability scoring. Auditors record observations, attach evidence references and write a conclusion. Reports (PDF and CSV) and trend views show the current maturity level, the gaps and the progress over time.
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Highlights
 
-- audit creation and client-scoped audit management
-- grouped FitSM process workspace with requirement scoring, evidence, notes, and history
+- client-scoped audit creation and management
+- grouped FitSM process workspace with requirement scoring, evidence, notes and history
 - audit details and conclusion capture
 - autosave plus explicit manual save controls in the audit workspace
 - PDF export generation and stored PDF download
 - CSV exports for audit and trend reporting
-- rootless Podman + systemd user-service runtime only
+- cookie-only browser sessions with CSRF header, rate limits and per-request role reload
+- rootless Podman runtime managed with Quadlet units and `systemctl --user`
 - OpenAPI JSON at `/openapi.json` and Swagger UI at `/docs`
+- dark theme by default with a light toggle in the top nav (saved in `localStorage` key `audit-fitsm-theme`; tokens in `apps/web/app/globals.css`) and a shared license footer (`apps/web/app/components/layout/site-footer.tsx`)
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
+
+## Architecture
+
+Everything runs in one rootless Podman pod named `audit-fitsm`. The API and the web UI run in the same dev container, started by `scripts/dev-entrypoint.sh`. MariaDB is reachable only inside the pod.
+
+```mermaid
+flowchart LR
+  browser["Browser"]
+  subgraph host["Host (127.0.0.1 only)"]
+    p1260[":1260"]
+    p1261[":1261"]
+    p1263[":1263 (opt-in)"]
+  end
+  subgraph pod["Pod audit-fitsm"]
+    subgraph dev["audit-fitsm-dev (non-root app user)"]
+      web["Next.js web UI :1260"]
+      api["Bun + Elysia API :1261"]
+    end
+    db[("audit-fitsm-db<br/>MariaDB 12.3 :3306<br/>pod-internal only")]
+    pma["audit-fitsm-phpmyadmin<br/>(--with-phpmyadmin)"]
+  end
+  subgraph vols["Named volumes"]
+    vdb[("audit-fitsm-db")]
+    vexp[("audit-fitsm-exports")]
+    vbak[("audit-fitsm-backups")]
+    vdev[("audit-fitsm-dev")]
+    vcache[("audit-fitsm-bun-cache")]
+  end
+  browser --> p1260 --> web
+  browser --> p1261 --> api
+  browser -.-> p1263 -.-> pma
+  web --> api
+  api -->|"127.0.0.1:3306"| db
+  pma -.-> db
+  db --- vdb
+  api --- vexp
+  api --- vbak
+  dev --- vdev
+  dev --- vcache
+```
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Ports
 
-- Web UI: `1260`
-- API: `1261`
-- MariaDB: `1262`
-- phpMyAdmin: `1263`
+All published ports bind to `127.0.0.1` only.
 
-[Go to TOC](#table-of-contents)
+| Service    | Host port | Notes |
+|------------|-----------|-------|
+| Web UI     | `1260`    | Next.js, always published |
+| API        | `1261`    | Bun + Elysia, always published |
+| phpMyAdmin | `1263`    | only when installed with `scripts/install.sh --with-phpmyadmin` |
+| MariaDB    | none      | pod-internal `127.0.0.1:3306`, never published |
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Prerequisites
 
-- Linux host with `systemd --user`
-- rootless `podman`
-- `bash`, `git`, and `systemctl`
-- free host ports `1260`, `1261`, `1262`, `1263`
+- Linux host with a `systemd --user` session (enable lingering with `loginctl enable-linger "$USER"` if services should outlive your login)
+- rootless `podman` with Quadlet support
+- `bash`, `git` and `systemctl`
+- free host ports `1260` and `1261` (and `1263` when phpMyAdmin is enabled)
 
-This project is Podman-only. Do not use Docker or rootful containers.
+This project is Podman-only. Do not use Docker, rootful containers or `sudo`. Nothing is installed on the host; builds, dependency installs, migrations and tests all run in containers.
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Project layout
 
-- `apps/web/` - Next.js web UI
-- `apps/api/` - Bun + Elysia API and integration suite
-- `db/migrations/` - SQL schema and reporting views
-- `.quadlet/` - rootless Podman Quadlet units
-- `.systemd/` - app services that execute web/api inside the dev container
-- `scripts/` - install, lifecycle, health, import, backup, and test helpers
-- `docs/` - operator, developer, API, and workflow documentation
+```text
+apps/web/          Next.js web UI (pages in route groups app/(main)/ and app/(auth)/)
+apps/api/          Bun + Elysia API, OpenAPI spec, DB scripts and integration suite
+db/migrations/     SQL schema and reporting views
+quadlet/           Quadlet units (.pod, .container, .build, .volume) and the opt-in phpMyAdmin drop-in
+scripts/           lifecycle, data, diagnostics and CI scripts (shared names in scripts/common.sh)
+docs/              operator, developer, API and workflow documentation
+Containerfile      dev image (UBI 10 minimal + Bun, runs as non-root user app)
+.env.example       reference of the environment variables the units set
+```
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Documentation index
 
-- `docs/README.md` - documentation landing page
-- `docs/audit-workspace.md` - audit workspace user guide
-- `docs/development-runtime.md` - container-first development and rebuild workflow
-- `docs/api-surface.md` - route inventory and behavior notes
-- `docs/security-model.md` - cookie session, role reload, and local secret policy
-- `docs/integration-testing.md` - integration and readiness validation
-- `docs/ci-runbook.md` - CI troubleshooting
-- `docs/ui-date-formatting.md` - date and timestamp formatting policy
+- [docs/README.md](docs/README.md) - documentation landing page
+- [docs/audit-workspace.md](docs/audit-workspace.md) - audit workspace user guide
+- [docs/development-runtime.md](docs/development-runtime.md) - container-first runtime and rebuild workflow
+- [docs/api-surface.md](docs/api-surface.md) - route inventory, status codes and behavior notes
+- [docs/security-model.md](docs/security-model.md) - sessions, CSRF, authorization, rate limits and secrets
+- [docs/integration-testing.md](docs/integration-testing.md) - integration and readiness validation
+- [docs/ci-runbook.md](docs/ci-runbook.md) - CI pipeline and troubleshooting
+- [docs/ui-date-formatting.md](docs/ui-date-formatting.md) - date, timestamp and UTC policy
+- [docs/ods-operational-mapping.md](docs/ods-operational-mapping.md) - FitSM workbook to database mapping
+- [docs/documentation-style.md](docs/documentation-style.md) - Markdown rules for this repo
+- [docs/style-audit-report.md](docs/style-audit-report.md) - documentation compliance checklist
+- [docs/TEMPLATE.md](docs/TEMPLATE.md) - template used by `scripts/new-doc.sh`
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Quick start
 
-Preferred lifecycle commands are in `scripts/*.sh`.
-
-1. Install units and start the local runtime:
+1. Install: checks prerequisites, creates the Podman secrets, copies the Quadlet units to `~/.config/containers/systemd/`, reloads systemd and builds the image. `--start` starts the stack afterwards.
 
 ```bash
-scripts/install.sh
+scripts/install.sh --start
+# or, with phpMyAdmin on 127.0.0.1:1263:
+scripts/install.sh --with-phpmyadmin --start
 ```
 
 2. Apply migrations:
@@ -114,13 +170,13 @@ scripts/install.sh
 scripts/migrate.sh
 ```
 
-3. Bootstrap an admin:
+3. Bootstrap the first admin. The password (at least 12 characters) comes from `BOOTSTRAP_ADMIN_PASSWORD` or an interactive prompt, never from the command line:
 
 ```bash
-scripts/bootstrap-admin.sh admin@example.com 'ChangeMe123!'
+scripts/bootstrap-admin.sh admin@example.com "System Admin" "Default Organization"
 ```
 
-4. Optional: import the full FitSM workbook inside the dev container:
+4. Optional: import the full FitSM workbook (runs inside the dev container):
 
 ```bash
 scripts/import-fitsm.sh 1 1 "Initial Imported Audit"
@@ -128,156 +184,207 @@ scripts/import-fitsm.sh 1 1 "Initial Imported Audit"
 
 5. Open:
 
-- `http://localhost:1260/login`
-- `http://localhost:1261/docs`
-- `http://localhost:1261/openapi.json`
-- `http://localhost:1263/`
+- `http://127.0.0.1:1260/login`
+- `http://127.0.0.1:1261/docs` (sign in through the web UI first)
+- `http://127.0.0.1:1263/` (only with `--with-phpmyadmin`; log in with MariaDB credentials)
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
+
+## Lifecycle scripts
+
+All scripts live in `scripts/`, run from any directory, support `-h`/`--help`, and only call `podman` and `systemctl --user`. Shared names (pod, services, images, volumes, secrets, ports) live in `scripts/common.sh`. Everything the repo creates is named `audit-fitsm*` and labelled `io.audit-fitsm.project=audit-fitsm`.
+
+[↑ Back to TOC](#table-of-contents)
+
+### Core lifecycle
+
+| Script | Does |
+|--------|------|
+| `install.sh [--with-phpmyadmin] [--start] [--no-build]` | Check rootless podman and the systemd user session, preflight the ports, create missing secrets, render/copy the units to `~/.config/containers/systemd/`, `daemon-reload`, build the image. Without `--with-phpmyadmin` a previously installed phpMyAdmin unit is removed. |
+| `build.sh [--no-cache]` | Build or rebuild `localhost/audit-fitsm-dev:latest` (via `audit-fitsm-dev-build.service`, or `podman build` with `--no-cache`). |
+| `start.sh` | `systemctl --user start` the pod, DB, dev (and phpMyAdmin if installed), then print the URLs. |
+| `stop.sh` | Stop all services. Volumes are kept. |
+| `restart.sh` | Run `stop.sh`, then `start.sh`. |
+| `status.sh` | Show service, pod and container status. |
+| `logs.sh [pod\|db\|dev\|api\|web\|pma\|build\|all] [--no-follow]` | Follow logs. `api` and `web` show the dev container output because both run there. |
+
+[↑ Back to TOC](#table-of-contents)
+
+### Uninstall and cleanup
+
+`scripts/uninstall.sh [--purge] [--remove-quadlets]`
+
+By default it stops the services, runs `systemctl --user reset-failed`, removes the containers (including CI containers), the pod and its infra container, the built images with their dangling layers, the pulled base images that no other container uses, the JWT secret and any legacy `.systemd/` user units. Skipped base images are reported (for example `mariadb:12.3` when another container still uses it).
+
+It keeps, unless asked:
+
+- the named volumes and the two DB password secrets (`--purge` removes them; MariaDB only reads the password when the volume is first initialized, so both go together)
+- the Quadlet units in `~/.config/containers/systemd/` (`--remove-quadlets` removes them and runs `daemon-reload`)
+
+`--purge-data` is a deprecated alias for `--purge`. `uninstall.sh --purge --remove-quadlets` leaves nothing of the project on the host. The script ends with a leftover check over containers, pods, images, volumes, networks, secrets and the unit directory, and exits non-zero if anything remains.
+
+`scripts/clean-old-runtime.sh [--purge-data]` is a lighter reset: it removes pods, containers, CI volumes and built images but keeps the units and secrets.
+
+[↑ Back to TOC](#table-of-contents)
+
+### Database and data
+
+| Script | Does |
+|--------|------|
+| `migrate.sh` | Apply the SQL migrations in `db/migrations/`. |
+| `bootstrap-admin.sh [email] [display-name] [org-name]` | Create or update the first admin. Password from `BOOTSTRAP_ADMIN_PASSWORD` or a prompt, at least 12 characters. |
+| `import-fitsm.sh [org-id] [user-id] [audit-name] [audit-date]` | Import the FitSM workbook into a new audit. |
+| `backup-db.sh` | Write a zip backup to the `audit-fitsm-backups` volume (`/workspace/data/backups`). |
+| `list-backups.sh` | List the backups. |
+| `restore-db.sh /workspace/data/backups/<file>.zip` | Restore a backup. It takes a pre-restore backup first and refuses a dump made for a different database name. The underlying `restore:db` script also accepts `--force` and `--skip-pre-backup`. |
+
+[↑ Back to TOC](#table-of-contents)
+
+### Diagnostics and checks
+
+| Script | Does |
+|--------|------|
+| `health-readiness.sh [basic\|extended\|strict]` | Readiness checks inside the dev container (default `strict`). |
+| `integration-test.sh` | Run the API integration suite inside the dev container. |
+| `ci-strict.sh` | Container-first strict CI in a throwaway `audit-fitsm-ci` pod with random credentials; prints API/web/DB logs on failure. |
+| `preflight-ports.sh [--allow-pod NAME] PORT...` | Fail if a host port is in use (ports of the named pod are allowed). |
+| `ports.sh [PORT...]` | Show host listeners and Podman mappings (default `1260 1261 1263`). |
+| `check-secrets.sh` | Fail on committed private keys or hard-coded secret values. |
+| `check-ui-date-inputs.sh` | Enforce the date-input wrapper policy in the web UI. |
+| `new-doc.sh <relative-path.md> <title>` | Create a compliant Markdown page from `docs/TEMPLATE.md`. |
+
+`scripts/dev-entrypoint.sh` is the dev container entrypoint (starts API and web). `scripts/run-api.sh` and `scripts/run-web.sh` start an extra API or web process inside the running container for debugging.
+
+[↑ Back to TOC](#table-of-contents)
+
+### Package aliases
+
+The root `package.json` maps the scripts to aliases such as `stack:install`, `stack:build`, `stack:start`, `stack:stop`, `stack:restart`, `stack:uninstall`, `db:migrate`, `backup:db` and `restore:db`. Run them inside a container; the scripts themselves are the host entry point.
+
+[↑ Back to TOC](#table-of-contents)
+
+## Upgrading an existing install
+
+The layout changed: `.quadlet/` is now `quadlet/`, `scripts/_common.sh` is `scripts/common.sh`, `Containerfile.dev` is `Containerfile`, and the `.systemd/` API/web services are gone (`uninstall.sh` removes leftover copies). The DB port is no longer published, and phpMyAdmin is opt-in.
+
+Credentials now come from random Podman secrets. A DB volume created by an older install was initialized with the password `change_me`, which no longer matches. Choose one:
+
+- Back up with `scripts/backup-db.sh`, then run `scripts/uninstall.sh --purge` (destroys all data) and `scripts/install.sh --start`, then migrate and restore.
+- Keep the data: set the secret to the old value before starting, with `podman secret rm audit-fitsm-db-password` followed by `printf '%s' 'change_me' | podman secret create audit-fitsm-db-password -`, then change the DB password properly later.
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Daily workflow
 
 1. Sign in at `/login`.
-2. Use `/admin` to create a client and manage org-scoped users/roles.
+2. Use `/admin` to create a client and manage org-scoped users and roles.
 3. Use `/clients` to select a client and register a new audit.
 4. Open `/audits/:auditId` for the full audit workspace.
-5. Score requirements, add comments/evidence, capture audit details, and write the conclusion.
-6. Generate CSV/PDF outputs when the audit content is ready.
+5. Score requirements, add comments and evidence, capture audit details and write the conclusion.
+6. Generate CSV and PDF outputs when the audit content is ready.
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Audit workspace save behavior
 
-The audit workspace now supports both autosave and explicit save actions.
+The audit workspace supports autosave and explicit save actions.
 
-- Autosave runs after a short pause while editing.
-- Autosave also runs when a user leaves a field (`blur`) in the workspace.
-- A visible manual save block appears near the top of the page.
-- A sticky save controls panel stays available while scrolling.
+- Autosave runs after a short pause while editing, and when a field loses focus.
+- A manual save block sits near the top of the page, and a sticky save panel stays available while scrolling.
+- Manual actions: `Save scope & targets`, `Save assessments`, `Save details`, `Save conclusion`, `Save all`, `Save status` (manual only).
+- Scope and certification targets are editable only while the status is `draft`. Non-lead users cannot edit a `completed` audit. Conclusion and `Save all` need lead auditor or org admin rights.
 
-Manual save actions:
+See [docs/audit-workspace.md](docs/audit-workspace.md) for the full guide.
 
-- `Save scope & targets`
-- `Save assessments`
-- `Save details`
-- `Save conclusion`
-- `Save all`
-- `Save status` (manual only)
-
-Permission and lock behavior:
-
-- scope and certification targets are editable only while status is `draft`
-- non-lead users cannot keep editing once an audit is `completed`
-- conclusion and `Save all` require lead auditor or org admin permissions
-
-See `docs/audit-workspace.md` for the full operator guide.
-
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Development runtime model
 
-This repo does not use bind mounts for source code. The dev container copies the repository into `/workspace` when the image is built.
-
-Implication: after changing source files locally, rebuild and restart the dev runtime before expecting the running app to serve those changes.
-
-Typical refresh flow:
+There are no bind mounts. The `Containerfile` copies the repository into `/workspace` at build time, and data lives in named volumes. After changing source files, rebuild and restart:
 
 ```bash
-systemctl --user restart audit-fitsm-dev-build.service
-systemctl --user restart audit-fitsm-dev.service
+scripts/build.sh
+scripts/restart.sh
 ```
 
 Useful checks:
 
 ```bash
 scripts/status.sh
-scripts/logs.sh web
-scripts/logs.sh api
+scripts/logs.sh dev
 ```
 
-See `docs/development-runtime.md` for the full workflow.
+See [docs/development-runtime.md](docs/development-runtime.md) for the full workflow.
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Authentication and authorization
 
-- `/login` and `/logout` are dedicated auth routes
-- protected routes redirect to `/login` when the session is missing or invalid
-- the browser session is an httpOnly `SameSite=Strict` cookie; API clients may still use the JSON `accessToken` as a bearer token
-- cookie-authenticated writes send `x-audit-fitsm: 1`
-- roles are loaded from the database on each request
-- JWTs are short-lived and role/password changes revoke active sessions
-- non-system-admin users are scoped to a single client/org
-- local Quadlet defaults are allowed only when `ALLOW_INSECURE_DEFAULTS=1`
+- The browser session is a cookie only (`HttpOnly`, `SameSite=Strict`, `Secure` in production and staging) carrying a signed JWT. Bearer tokens are not accepted, and login returns `{ ok: true, expiresInSec }` with no token in the body.
+- The web UI calls `POST /auth/refresh` about every 5 minutes while the user is active. `POST /auth/logout` ends all of that user's sessions everywhere.
+- Every non-GET/HEAD/OPTIONS request, including login and logout, must send `x-audit-fitsm: 1`, otherwise the API answers `403`.
+- Roles are loaded from the database on each request; role and password changes revoke existing sessions.
+- Non-system-admin users are scoped to a single client (org). An org admin cannot reset or demote a system admin.
 
-See `docs/security-model.md`.
+See [docs/security-model.md](docs/security-model.md).
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## API and OpenAPI docs
 
-- API base URL: `http://localhost:1261`
-- Swagger UI: `http://localhost:1261/docs`
-- OpenAPI JSON: `http://localhost:1261/openapi.json`
+- API base URL: `http://127.0.0.1:1261`
+- Swagger UI: `http://127.0.0.1:1261/docs`
+- OpenAPI JSON: `http://127.0.0.1:1261/openapi.json` (source: `apps/api/openapi/openapi.json`)
 
-See `docs/api-surface.md` for the route inventory.
+Outside `NODE_ENV=development`/`test`, both docs routes need a valid session. See [docs/api-surface.md](docs/api-surface.md) for the route inventory.
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Health checks and testing
-
-Readiness modes:
 
 ```bash
 scripts/health-readiness.sh basic
 scripts/health-readiness.sh extended
-scripts/health-readiness.sh strict
-```
-
-Integration suite:
-
-```bash
+scripts/health-readiness.sh strict   # includes the integration suite
 scripts/integration-test.sh
 ```
 
-`strict` includes the full integration suite.
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit tests, secret scan, the UI date-input check and ShellCheck, then the Podman integration job through `scripts/ci-strict.sh`. See [docs/integration-testing.md](docs/integration-testing.md) and [docs/ci-runbook.md](docs/ci-runbook.md).
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
-## Management scripts
+## Time zones
 
-- `scripts/install.sh`
-- `scripts/start.sh`
-- `scripts/stop.sh`
-- `scripts/restart.sh`
-- `scripts/status.sh`
-- `scripts/logs.sh [pod|db|pma|phpmyadmin|dev|api|web|all]`
-- `scripts/migrate.sh`
-- `scripts/bootstrap-admin.sh <email> <password> [display] [org]`
-- `scripts/import-fitsm.sh [org-id] [user-id] [audit-name] [audit-date]`
-- `scripts/backup-db.sh`
-- `scripts/restore-db.sh /workspace/data/backups/<file>.zip`
-- `scripts/check-ui-date-inputs.sh`
-- `scripts/health-readiness.sh [basic|extended|strict]`
-- `scripts/integration-test.sh`
+- MariaDB runs with `--default-time-zone=+00:00` and `TZ=UTC`; the API pool uses time zone `Z` and sets `time_zone` on every connection.
+- The API sends and receives timestamps as ISO 8601 UTC (`2026-11-20T14:05:09Z`).
+- The web UI shows local time as `yyyy-MM-dd HH:mm:ss` and dates as `yyyy-MM-dd`.
+- Known gap: timestamp columns still use `*_at` names; the rename to `*_UTC` is deferred.
 
-[Go to TOC](#table-of-contents)
+See [docs/ui-date-formatting.md](docs/ui-date-formatting.md).
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Operational notes
 
-- archive-only data lifecycle; do not hard-delete audit data
-- PDFs are stored under `/workspace/data/exports`
-- backups are stored under `/workspace/data/backups`
-- reporting views include `v_all_results`, `v_certification_results`, `v_gap_analysis`, and `v_trends`
-- UI date-only inputs use `yyyy-mm-dd`
-- UI timestamps display local `YYYY-MM-DD HH:mm:ss`
+- archive-only data lifecycle; audit data is not hard-deleted
+- PDFs are stored under `/workspace/data/exports` (volume `audit-fitsm-exports`)
+- backups are stored under `/workspace/data/backups` (volume `audit-fitsm-backups`)
+- reporting views: `v_all_results`, `v_certification_results`, `v_gap_analysis`, `v_trends`
+- secrets: `audit-fitsm-db-password`, `audit-fitsm-db-root-password`, `audit-fitsm-jwt-secret` (random, created by `install.sh`)
+- images: `docker.io/library/mariadb:12.3`, `docker.io/library/phpmyadmin:5.2.3` (opt-in), `docker.io/oven/bun:1.2.22`, `registry.access.redhat.com/ubi10/ubi-minimal:10.3-1795196920`
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
-## License footer
+## License
 
-© Audit FitSM contributors. Licensed under [CC BY 4.0](./LICENSE.md).
+Copyright (C) 2026 UncleJS. This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-FitSM framework attribution: source framework and terminology credited to [FitSM](https://www.fitsm.eu/).
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [LICENSE](LICENSE) file for the full text.
 
-[Go to TOC](#table-of-contents)
+FitSM attribution: the FitSM framework, terminology and assessment workbook are credited to [FitSM](https://www.fitsm.eu/) and remain under their own terms.
+
+[↑ Back to TOC](#table-of-contents)
+
+---
+
+© 2026 UncleJS — Licensed under [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.txt)

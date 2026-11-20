@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import type { AppBase } from "../app-base";
 import type { RowDataPacket } from "../support";
 import {
@@ -14,6 +16,7 @@ import {
   revokeUserSessions,
   unauthorized,
   updateOrgUserRolesSchema,
+  withTransaction,
 } from "../support";
 
 export const registerOrgRoutes = (app: AppBase): AppBase =>
@@ -80,29 +83,32 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
         return { error: "Client already exists" };
       }
 
-      const [insertOrg] = await db.execute(
-        `INSERT INTO organizations (name)
-       VALUES (?)`,
-        [clientName],
-      );
-
-      const orgId = insertIdOf(insertOrg);
-
-      const [roleRows] = await db.query<RowDataPacket[]>(
-        `SELECT id
-       FROM roles
-       WHERE code = 'org_admin' AND archived_at IS NULL
-       LIMIT 1`,
-      );
-
-      if (roleRows.length) {
-        await db.execute(
-          `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE created_at = org_user_roles.created_at`,
-          [orgId, auth.sub, Number(roleRows[0].id), auth.sub],
+      // A concurrent create with the same name hits uq on the active name; the global error handler maps that to 409.
+      const orgId = await withTransaction(async (conn) => {
+        const [insertOrg] = await conn.execute(
+          `INSERT INTO organizations (name)
+         VALUES (?)`,
+          [clientName],
         );
-      }
+        const newOrgId = insertIdOf(insertOrg);
+
+        const [roleRows] = await conn.query<RowDataPacket[]>(
+          `SELECT id
+         FROM roles
+         WHERE code = 'org_admin' AND archived_at IS NULL
+         LIMIT 1`,
+        );
+
+        if (roleRows.length) {
+          await conn.execute(
+            `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE created_at = org_user_roles.created_at`,
+            [newOrgId, auth.sub, Number(roleRows[0].id), auth.sub],
+          );
+        }
+        return newOrgId;
+      });
 
       set.status = 201;
       return { id: orgId, name: clientName };
@@ -213,55 +219,55 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
         return { error: "system_admin role cannot be assigned via org endpoint" };
       }
 
-      const passwordHash = await Bun.password.hash(payload.password, {
-        algorithm: "argon2id",
-      });
-
-      let userId: number;
-      let shouldRevokeUserSessions = false;
-      if (existingUsers.length) {
-        userId = Number(existingUsers[0].id);
-
-        const scope = await getUserScope(userId);
-        const hasOtherOrgs = scope.orgIds.some((id) => id !== orgId);
-        if (hasOtherOrgs && !scope.hasSystemAdmin) {
+      const existingUserId = existingUsers.length ? Number(existingUsers[0].id) : null;
+      if (existingUserId !== null) {
+        // Existing account: this endpoint only grants roles. It never touches the password or display name,
+        // otherwise an org_admin could take over any account (including a system_admin) by "re-creating" it.
+        const scope = await getUserScope(existingUserId);
+        if (scope.hasSystemAdmin) {
+          set.status = 409;
+          return { error: "User is a system administrator and cannot be managed via the org endpoint" };
+        }
+        if (scope.orgIds.some((id) => id !== orgId)) {
           set.status = 409;
           return {
             error: "User is already scoped to another client. Non-system-admin users can belong to only one client",
           };
         }
-
-        await db.execute(
-          `UPDATE users
-         SET display_name = ?, password_hash = ?, is_active = 1, updated_at = UTC_TIMESTAMP(3)
-         WHERE id = ? AND archived_at IS NULL`,
-          [payload.displayName, passwordHash, userId],
-        );
-        shouldRevokeUserSessions = true;
-      } else {
-        const [insertUser] = await db.execute(
-          `INSERT INTO users (email, password_hash, display_name, auth_provider)
-         VALUES (?, ?, ?, 'local')`,
-          [payload.email, passwordHash, payload.displayName],
-        );
-        userId = insertIdOf(insertUser);
       }
 
-      for (const role of roleRows) {
-        await db.execute(
-          `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
-          [orgId, userId, Number(role.id), auth.sub],
-        );
-      }
+      const passwordHash =
+        existingUserId === null ? await Bun.password.hash(payload.password, { algorithm: "argon2id" }) : null;
 
-      if (shouldRevokeUserSessions) {
-        await revokeUserSessions(userId);
-      }
+      const userId = await withTransaction(async (conn) => {
+        let targetUserId = existingUserId;
+        if (targetUserId === null) {
+          const [insertUser] = await conn.execute(
+            `INSERT INTO users (email, password_hash, display_name, auth_provider)
+           VALUES (?, ?, ?, 'local')`,
+            [payload.email, passwordHash, payload.displayName],
+          );
+          targetUserId = insertIdOf(insertUser);
+        }
+
+        for (const role of roleRows) {
+          await conn.execute(
+            `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
+            [orgId, targetUserId, Number(role.id), auth.sub],
+          );
+        }
+
+        if (existingUserId !== null) {
+          // Role set changed: existing sessions must pick up the new roles on their next login.
+          await revokeUserSessions(existingUserId, conn);
+        }
+        return targetUserId;
+      });
 
       set.status = 201;
-      return { id: userId, email: payload.email, roles: roleCodes };
+      return { id: userId, email: payload.email, roles: roleCodes, existingUser: existingUserId !== null };
     })
     .put("/orgs/:orgId/users/:userId/roles", async ({ auth, params, body, set }) => {
       const orgId = Number(params.orgId);
@@ -296,6 +302,12 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
         return { error: "User not found" };
       }
 
+      const targetScope = await getUserScope(userId);
+      if (targetScope.hasSystemAdmin && !isSystemAdmin(auth)) {
+        set.status = 403;
+        return { error: "System administrator roles cannot be changed by an org admin" };
+      }
+
       const [currentRoleRows] = await db.query<RowDataPacket[]>(
         `SELECT r.code
        FROM org_user_roles our
@@ -309,25 +321,28 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
       const currentRoleCodes = currentRoleRows.map((row) => String(row.code)).sort();
 
       if (roleCodesRequested.length === 0) {
-        const [archiveResult] = await db.execute(
-          `UPDATE org_user_roles
-         SET archived_at = UTC_TIMESTAMP(3)
-         WHERE org_id = ?
-           AND user_id = ?
-           AND archived_at IS NULL`,
-          [orgId, userId],
-        );
-
-        if (affectedRowsOf(archiveResult) > 0) {
-          await revokeUserSessions(userId);
-        }
+        // Never archive a system_admin grant through the org endpoint, even when the caller is a system_admin.
+        await withTransaction(async (conn) => {
+          const [archiveResult] = await conn.execute(
+            `UPDATE org_user_roles our
+           JOIN roles r ON r.id = our.role_id
+           SET our.archived_at = UTC_TIMESTAMP(3)
+           WHERE our.org_id = ?
+             AND our.user_id = ?
+             AND our.archived_at IS NULL
+             AND r.code <> 'system_admin'`,
+            [orgId, userId],
+          );
+          if (affectedRowsOf(archiveResult) > 0) {
+            await revokeUserSessions(userId, conn);
+          }
+        });
 
         return { userId, roles: [], archivedInOrg: true };
       }
 
-      const scope = await getUserScope(userId);
-      const hasOtherOrgs = scope.orgIds.some((id) => id !== orgId);
-      if (hasOtherOrgs && !scope.hasSystemAdmin) {
+      const hasOtherOrgs = targetScope.orgIds.some((id) => id !== orgId);
+      if (hasOtherOrgs && !targetScope.hasSystemAdmin) {
         set.status = 409;
         return {
           error: "User is already scoped to another client. Non-system-admin users can belong to only one client",
@@ -350,31 +365,36 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
       }
 
       const placeholders = roleCodesRequested.map(() => "?").join(",");
-      await db.execute(
-        `UPDATE org_user_roles our
-       JOIN roles r ON r.id = our.role_id
-       SET our.archived_at = UTC_TIMESTAMP(3)
-       WHERE our.org_id = ?
-         AND our.user_id = ?
-         AND our.archived_at IS NULL
-         AND r.archived_at IS NULL
-         AND r.code NOT IN (${placeholders})`,
-        [orgId, userId, ...roleCodesRequested],
-      );
-
-      for (const role of roleRows) {
-        await db.execute(
-          `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by, archived_at)
-         VALUES (?, ?, ?, ?, NULL)
-         ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
-          [orgId, userId, Number(role.id), auth.sub],
-        );
-      }
-
       const nextRoleCodes = [...foundCodes].sort();
-      if (JSON.stringify(currentRoleCodes) !== JSON.stringify(nextRoleCodes)) {
-        await revokeUserSessions(userId);
-      }
+      await withTransaction(async (conn) => {
+        await conn.execute(
+          `UPDATE org_user_roles our
+         JOIN roles r ON r.id = our.role_id
+         SET our.archived_at = UTC_TIMESTAMP(3)
+         WHERE our.org_id = ?
+           AND our.user_id = ?
+           AND our.archived_at IS NULL
+           AND r.archived_at IS NULL
+           AND r.code <> 'system_admin'
+           AND r.code NOT IN (${placeholders})`,
+          [orgId, userId, ...roleCodesRequested],
+        );
+
+        for (const role of roleRows) {
+          await conn.execute(
+            `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by, archived_at)
+           VALUES (?, ?, ?, ?, NULL)
+           ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
+            [orgId, userId, Number(role.id), auth.sub],
+          );
+        }
+
+        if (
+          JSON.stringify(currentRoleCodes.filter((code) => code !== "system_admin")) !== JSON.stringify(nextRoleCodes)
+        ) {
+          await revokeUserSessions(userId, conn);
+        }
+      });
 
       return { userId, roles: foundCodes, archivedInOrg: false };
     }) as unknown as AppBase;

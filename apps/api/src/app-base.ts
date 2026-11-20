@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import { jwt } from "@elysiajs/jwt";
 import Elysia from "elysia";
-import type { AuthPayload, AuthVia, RowDataPacket } from "./support";
+import { normalizeRoutePath, setRateLimitMaxBuckets } from "./rate-limit";
+import type { AuthPayload, RowDataPacket } from "./support";
 import {
   anonymousSession,
   applyCorsHeaders,
@@ -10,16 +13,48 @@ import {
   clientAddress,
   config,
   db,
-  extractBearer,
   getContentSecurityPolicy,
   hasTokenVersionColumn,
+  isDuplicateKeyError,
   openApiDoc,
   readSessionCookie,
   unauthorized,
 } from "./support";
 
-export const createAppBase = () =>
-  new Elysia()
+const SWAGGER_UI_VERSION = "5.17.14";
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** API docs are public only in local development and tests. */
+const docsArePublic = (): boolean => process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+
+type HeaderSet = { headers: Record<string, string | number> };
+
+const applySecurityHeaders = (set: HeaderSet, request: Request): void => {
+  applyCorsHeaders(set, request);
+  set.headers["x-content-type-options"] = "nosniff";
+  set.headers["x-frame-options"] = "DENY";
+  set.headers["referrer-policy"] = "same-origin";
+  set.headers["x-permitted-cross-domain-policies"] = "none";
+  set.headers["content-security-policy"] = getContentSecurityPolicy(request);
+};
+
+const errorCodeOf = (error: unknown): { code?: string; errno?: number } =>
+  error && typeof error === "object" ? (error as { code?: string; errno?: number }) : {};
+
+const isForeignKeyError = (error: unknown): boolean => {
+  const { code, errno } = errorCodeOf(error);
+  return code === "ER_NO_REFERENCED_ROW_2" || code === "ER_NO_REFERENCED_ROW" || errno === 1452 || errno === 1216;
+};
+
+const isDataTooLongError = (error: unknown): boolean => {
+  const { code, errno } = errorCodeOf(error);
+  return code === "ER_DATA_TOO_LONG" || errno === 1406 || code === "ER_TRUNCATED_WRONG_VALUE" || errno === 1292;
+};
+
+export const createAppBase = () => {
+  setRateLimitMaxBuckets(config.rateLimit.maxBuckets);
+  return new Elysia()
     .use(
       jwt({
         name: "jwt",
@@ -35,8 +70,8 @@ export const createAppBase = () =>
       }
 
       const ip = clientAddress(request, server, config.trustProxy);
-      const method = request.method;
-      const route = new URL(request.url).pathname;
+      const method = request.method.toUpperCase();
+      const route = normalizeRoutePath(new URL(request.url).pathname);
       const bucketKey = `${ip}:${method}:${route}`;
       const rate = checkRateLimit(bucketKey, config.rateLimit.windowMs, config.rateLimit.maxRequests);
 
@@ -45,21 +80,55 @@ export const createAppBase = () =>
         set.headers["retry-after"] = String(rate.retryAfterSec ?? 1);
         return { error: "Rate limit exceeded" };
       }
+
+      // CSRF guard: the session lives in a cookie, so every state-changing request (including login,
+      // logout and refresh) must carry a custom header that a cross-site form or image cannot set.
+      if (!SAFE_METHODS.has(method) && request.headers.get("x-audit-fitsm") !== "1") {
+        set.status = 403;
+        return { error: "Forbidden" };
+      }
     })
     .onAfterHandle(({ set, request }) => {
-      applyCorsHeaders(set, request);
-      set.headers["x-content-type-options"] = "nosniff";
-      set.headers["x-frame-options"] = "DENY";
-      set.headers["referrer-policy"] = "same-origin";
-      set.headers["x-permitted-cross-domain-policies"] = "none";
-      set.headers["content-security-policy"] = getContentSecurityPolicy(request);
+      applySecurityHeaders(set, request);
+    })
+    .onError(({ code, error, set, request }) => {
+      applySecurityHeaders(set, request);
+
+      if (code === "NOT_FOUND") {
+        set.status = 404;
+        return { error: "Not found" };
+      }
+      if (code === "VALIDATION" || code === "PARSE") {
+        set.status = 400;
+        return { error: "Invalid request payload" };
+      }
+      if (isDuplicateKeyError(error)) {
+        set.status = 409;
+        return { error: "A record with the same unique value already exists" };
+      }
+      if (isForeignKeyError(error) || isDataTooLongError(error)) {
+        set.status = 400;
+        return { error: "Invalid reference or value in request" };
+      }
+      if (typeof code === "number" && code >= 400 && code < 500) {
+        set.status = code;
+        return { error: "Request failed" };
+      }
+
+      const pathname = (() => {
+        try {
+          return new URL(request.url).pathname;
+        } catch {
+          return "?";
+        }
+      })();
+      console.error(`[api] ${new Date().toISOString()} unhandled error on ${request.method} ${pathname}`, error);
+      set.status = 500;
+      return { error: "Internal server error" };
     })
     .derive(async ({ request, jwt }) => {
-      const bearer = extractBearer(request.headers.get("authorization"));
-      const cookieToken = bearer ? null : readSessionCookie(request);
-      const token = bearer ?? cookieToken;
-      const authVia: AuthVia | null = bearer ? "bearer" : cookieToken ? "cookie" : null;
-      if (!token || !authVia) {
+      const token = readSessionCookie(request);
+      if (!token) {
         return anonymousSession;
       }
 
@@ -70,7 +139,7 @@ export const createAppBase = () =>
       }
 
       const exp = Number(claims.exp ?? 0);
-      if (exp && Date.now() >= exp * 1000) {
+      if (!Number.isFinite(exp) || exp <= 0 || Date.now() >= exp * 1000) {
         return anonymousSession;
       }
 
@@ -80,7 +149,14 @@ export const createAppBase = () =>
         return anonymousSession;
       }
 
-      const tokenVersionColumnExists = await hasTokenVersionColumn();
+      let tokenVersionColumnExists: boolean;
+      try {
+        tokenVersionColumnExists = await hasTokenVersionColumn();
+      } catch (error) {
+        // Fail closed: without knowing whether revocation is enforced, do not accept the session.
+        console.error("[api] token_version lookup failed; treating request as anonymous", error);
+        return anonymousSession;
+      }
       const [userRows] = await db.query<RowDataPacket[]>(
         tokenVersionColumnExists
           ? `SELECT id, email, display_name, is_active, token_version
@@ -123,17 +199,9 @@ export const createAppBase = () =>
           orgRoles: buildOrgRoles(roleRows),
           tokenVersion,
         } satisfies AuthPayload,
-        authVia,
+        authVia: "cookie" as const,
+        sessionExp: exp,
       };
-    })
-    .onBeforeHandle(({ request, authVia, set }) => {
-      if (authVia !== "cookie") return;
-      const method = request.method.toUpperCase();
-      if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
-      if (request.headers.get("x-audit-fitsm") !== "1") {
-        set.status = 403;
-        return { error: "Forbidden" };
-      }
     })
     .options("/*", ({ set, request }) => {
       applyCorsHeaders(set, request);
@@ -182,14 +250,14 @@ export const createAppBase = () =>
       }
     })
     .get("/openapi.json", ({ auth, set }) => {
-      if (process.env.NODE_ENV === "production" && !auth) {
+      if (!docsArePublic() && !auth) {
         set.status = 401;
         return unauthorized;
       }
       return openApiDoc;
     })
     .get("/docs", ({ set, auth }) => {
-      if (process.env.NODE_ENV === "production" && !auth) {
+      if (!docsArePublic() && !auth) {
         set.status = 401;
         return unauthorized;
       }
@@ -200,11 +268,11 @@ export const createAppBase = () =>
   <head>
     <meta charset="utf-8" />
     <title>Audit FitSM API Docs</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@${SWAGGER_UI_VERSION}/swagger-ui.css" />
   </head>
   <body>
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@${SWAGGER_UI_VERSION}/swagger-ui-bundle.js"></script>
     <script>
       window.ui = SwaggerUIBundle({
         url: '/openapi.json',
@@ -214,5 +282,6 @@ export const createAppBase = () =>
   </body>
 </html>`;
     });
+};
 
 export type AppBase = ReturnType<typeof createAppBase>;

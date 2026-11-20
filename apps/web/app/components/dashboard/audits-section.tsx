@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+
 import { ArrowRight, FilePlus2 } from "lucide-react";
 import Link from "next/link";
 import { formatDateOnly, formatLocalTimestamp } from "../../lib/date-format";
@@ -54,7 +57,7 @@ export default function AuditsSection({
     >
       <div className="grid gap-3 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
         <div className="grid gap-2">
-          <label htmlFor="status-filter" className="text-sm font-medium text-slate-300">
+          <label htmlFor="status-filter" className="text-sm font-medium text-fg-secondary">
             Status filter
           </label>
           <select
@@ -71,7 +74,7 @@ export default function AuditsSection({
           </select>
         </div>
         <div className="grid gap-2 xl:col-span-2">
-          <label htmlFor="search-audits" className="text-sm font-medium text-slate-300">
+          <label htmlFor="search-audits" className="text-sm font-medium text-fg-secondary">
             Search
           </label>
           <input
@@ -82,7 +85,7 @@ export default function AuditsSection({
           />
         </div>
         <div className="grid gap-2">
-          <label htmlFor="sort-by" className="text-sm font-medium text-slate-300">
+          <label htmlFor="sort-by" className="text-sm font-medium text-fg-secondary">
             Sort by
           </label>
           <select
@@ -114,13 +117,13 @@ export default function AuditsSection({
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.16em] text-slate-500 lg:hidden">
+        <p className="text-xs uppercase tracking-[0.16em] text-muted lg:hidden">
           Swipe horizontally to view audit actions and links
         </p>
-        <div className="overflow-x-auto rounded-2xl border border-slate-800/80">
+        <div className="overflow-x-auto rounded-2xl border border-border/80">
           {table.filteredAudits.length === 0 ? (
-            <div className="grid gap-2 p-6 text-sm text-slate-400">
-              <p className="font-medium text-slate-200">No audits match the current filters.</p>
+            <div className="grid gap-2 p-6 text-sm text-muted">
+              <p className="font-medium text-fg">No audits match the current filters.</p>
               <p>Create a new audit or change the filters to see more records.</p>
             </div>
           ) : (
@@ -142,15 +145,19 @@ export default function AuditsSection({
                   const isSaving = !!table.statusSavingByAuditId[String(audit.id)];
                   return (
                     <tr key={audit.id}>
-                      <td className="font-mono text-slate-400">#{audit.id}</td>
+                      <td className="font-mono text-muted">#{audit.id}</td>
                       <td>
-                        <div className="font-medium text-slate-50">{decodeHtmlEntities(audit.name)}</div>
+                        <div className="font-medium text-fg">{decodeHtmlEntities(audit.name)}</div>
                       </td>
                       <td>
                         <Badge variant={statusVariant(audit.status)}>{audit.status.replace("_", " ")}</Badge>
                       </td>
                       <td>{formatDateOnly(audit.audit_date)}</td>
-                      <td>{formatLocalTimestamp(audit.updated_at ?? audit.audit_date)}</td>
+                      <td>
+                        {audit.updated_at
+                          ? formatLocalTimestamp(audit.updated_at)
+                          : formatDateOnly(audit.audit_date) || "—"}
+                      </td>
                       <td>
                         <Button
                           size="sm"
@@ -164,7 +171,7 @@ export default function AuditsSection({
                       <td>
                         <Link
                           href={`/audits/${audit.id}`}
-                          className="inline-flex items-center gap-2 text-sm font-medium text-sky-300"
+                          className="inline-flex items-center gap-2 text-sm font-medium text-accent"
                         >
                           Open workspace <ArrowRight className="size-4" />
                         </Link>

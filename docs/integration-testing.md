@@ -1,9 +1,8 @@
 # Integration Testing
 
-![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
-![Tests](https://img.shields.io/badge/tests-integration-blue)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](../LICENSE) [![CI](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml) [![Bun 1.2.22](https://img.shields.io/badge/Bun-1.2.22-000000?logo=bun)](https://bun.sh)
 
-Run full API/UI integration checks against a running containerized stack.
+Run the API integration suite and readiness checks against the running containerized stack. Everything runs inside the `audit-fitsm-dev` container.
 
 ## Table of Contents
 
@@ -12,68 +11,68 @@ Run full API/UI integration checks against a running containerized stack.
 - [Run the suite](#run-the-suite)
 - [Run readiness modes](#run-readiness-modes)
 - [What is validated](#what-is-validated)
-- [License footer](#license-footer)
 
 ## Scope
 
 The suite validates:
 
-- auth/login
-- client + audit creation
-- workspace/scope/assessment updates
-- autosave-backed workspace update endpoints
-- notes/history
-- details/conclusion updates
-- status transitions and completed-audit lock
-- JWT revocation after org-role changes
+- auth: cookie-session login (every write sends `x-audit-fitsm: 1`)
+- client and audit creation
+- workspace, scope and assessment updates (the endpoints behind autosave)
+- notes and history
+- details and conclusion updates
+- status transitions and the completed-audit lock
+- session revocation after org-role changes
 - CSV export endpoints
-- PDF generate/list/download
-- audit-level history for details, conclusion, and status
+- PDF generate, list and download
+- audit-level history for details, conclusion and status
 - assessment archive and restore
-- result routes for all, certification, and gaps
+- result routes for all, certification and gaps
 - organization trend JSON
 - bad password and missing session
 - cross-organization denial for a non-member
 - org RBAC admin endpoints
 - client-scoped user enforcement (non-system-admin cross-client assignment blocked)
-- web HTML-entity decoding regression (`&amp;` -> `&`)
+- web HTML-entity decoding regression (`&amp;` to `&`)
 - Swagger UI and OpenAPI docs availability
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Prerequisites
 
-- services installed and running (`scripts/install.sh`, `scripts/start.sh`)
+- stack installed and running (`scripts/install.sh --start`)
 - migrations applied (`scripts/migrate.sh`)
 - admin bootstrapped (`scripts/bootstrap-admin.sh`)
 
-Optional env overrides:
+The suite reads these variables inside the dev container:
 
-- `TEST_ADMIN_EMAIL`
-- `TEST_ADMIN_PASSWORD`
+- `TEST_ADMIN_EMAIL` (default `admin@example.com`)
+- `TEST_ADMIN_PASSWORD` (the bootstrap admin password)
 - `API_BASE_URL` (default `http://localhost:1261`)
+- `WEB_BASE_URL` (readiness only, default `http://127.0.0.1:1260`)
 
-[Go to TOC](#table-of-contents)
+`podman exec` does not forward host variables, so pass them with `-e`, as shown below.
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Run the suite
 
-From project root:
+From the project root:
 
 ```bash
 scripts/integration-test.sh
 ```
 
-or directly:
+or directly, with credentials:
 
 ```bash
-podman exec audit-fitsm-dev bun run --cwd /workspace/apps/api integration:test
+podman exec -e TEST_ADMIN_PASSWORD="$TEST_ADMIN_PASSWORD" audit-fitsm-dev \
+  bun run --cwd /workspace/apps/api integration:test
 ```
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Run readiness modes
-
-From project root:
 
 ```bash
 scripts/health-readiness.sh basic
@@ -83,31 +82,20 @@ scripts/health-readiness.sh strict
 
 Mode behavior:
 
-- `basic`: DB ping + migration presence + `GET /health` + `GET /ready` + web HTTP reachability
-- `extended`: basic + auth login + `GET /me`
-- `strict`: extended + full integration suite (`integration:test`)
-  - plus web text-entity regression test (`apps/web/app/lib/text-format.test.ts`)
+- `basic`: DB ping, migration presence, `GET /health`, `GET /ready` and web HTTP reachability
+- `extended`: basic plus login and `GET /me`
+- `strict` (default): extended plus the full integration suite and the web text-entity regression test (`apps/web/app/lib/text-format.test.ts`)
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## What is validated
 
-Output is JSON with `ok: true` when successful and includes generated IDs.
+Output is JSON with `ok: true` on success and includes the generated IDs. On failure the script exits non-zero and prints the failing step, status code and a response body snippet.
 
-Failure behavior:
+The suite covers the API endpoints used by autosave and the manual save controls. Browser timing and blur behavior stay a frontend concern, but the underlying save endpoints are covered end to end.
 
-- exits non-zero
-- prints failing step, status code, and response body snippet
+[↑ Back to TOC](#table-of-contents)
 
-Coverage note:
+---
 
-- the integration suite validates the API endpoints used by autosave and manual save controls
-- browser timing/blur behavior remains a frontend interaction concern, but the underlying save endpoints are covered end-to-end
-
-[Go to TOC](#table-of-contents)
-
-## License footer
-
-© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
-
-[Go to TOC](#table-of-contents)
+© 2026 UncleJS — Licensed under [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.txt)

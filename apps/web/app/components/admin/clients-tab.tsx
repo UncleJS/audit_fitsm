@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+
 import type { FormEvent } from "react";
 import { decodeHtmlEntities } from "../../lib/text-format";
 import { Button } from "../ui/button";
@@ -27,8 +30,8 @@ export default function ClientsTab({
       <Card>
         <CardContent className="space-y-4 p-5">
           <div>
-            <p className="text-sm font-semibold text-slate-50">Create client</p>
-            <p className="mt-1 text-sm text-slate-400">Add a new organization before assigning audits and roles.</p>
+            <p className="text-sm font-semibold text-fg">Create client</p>
+            <p className="mt-1 text-sm text-muted">Add a new organization before assigning audits and roles.</p>
           </div>
           <form onSubmit={createClient} className="grid gap-3">
             <input
@@ -48,7 +51,7 @@ export default function ClientsTab({
       <Card>
         <CardContent className="p-0">
           {clients.length === 0 ? (
-            <div className="p-6 text-sm text-slate-400">No clients available yet.</div>
+            <div className="p-6 text-sm text-muted">No clients available yet.</div>
           ) : (
             <table className="data-table min-w-full">
               <thead>
@@ -61,8 +64,8 @@ export default function ClientsTab({
               <tbody>
                 {clients.map((client) => (
                   <tr key={client.id}>
-                    <td className="font-medium text-slate-50">{decodeHtmlEntities(client.name)}</td>
-                    <td className="font-mono text-slate-400">#{client.id}</td>
+                    <td className="font-medium text-fg">{decodeHtmlEntities(client.name)}</td>
+                    <td className="font-mono text-muted">#{client.id}</td>
                     <td>
                       <Button
                         size="sm"

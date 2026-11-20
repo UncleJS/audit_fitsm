@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+
 import { Layers3, Save, Target } from "lucide-react";
 import { Button } from "../ui/button";
 

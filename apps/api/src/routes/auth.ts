@@ -1,39 +1,76 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import type { AppBase } from "../app-base";
-import type { RowDataPacket } from "../support";
+import type { AuthPayload, RowDataPacket } from "../support";
 import {
   buildOrgRoles,
-  checkRateLimit,
+  checkProtectedRateLimit,
   clearSessionCookieHeader,
   clientAddress,
   config,
   db,
   hasTokenVersionColumn,
   loginSchema,
+  revokeUserSessions,
   sessionCookieHeader,
   unauthorized,
 } from "../support";
+
+// A valid argon2id hash of a random throwaway value. Verifying against it when the account does not exist
+// keeps the response time of "unknown user" close to "wrong password", so emails cannot be enumerated by timing.
+const dummyPasswordHash = Bun.password.hash(crypto.randomUUID(), { algorithm: "argon2id" });
+
+const rateLimited = (set: { status?: number | string; headers: Record<string, string | number> }, retry?: number) => {
+  set.status = 429;
+  set.headers["retry-after"] = String(retry ?? 1);
+  return { error: "Rate limit exceeded" };
+};
+
+type SignFn = (payload: Record<string, string | number | Record<string, string[]>>) => Promise<string>;
+
+const signSession = async (sign: SignFn, auth: AuthPayload): Promise<{ token: string; expiresInSec: number }> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const token = await sign({
+    sub: String(auth.sub),
+    email: auth.email,
+    name: auth.name,
+    orgRoles: auth.orgRoles,
+    tokenVersion: auth.tokenVersion,
+    exp: nowSec + config.jwtTtlSec,
+  });
+  return { token, expiresInSec: config.jwtTtlSec };
+};
 
 export const registerAuthRoutes = (app: AppBase): AppBase =>
   app
     .post("/auth/login", async ({ body, set, jwt, request, server }) => {
       const parsed = loginSchema.safeParse(body);
       const ip = clientAddress(request, server, config.trustProxy);
-      const emailKey = parsed.success ? parsed.data.email.toLowerCase() : "invalid";
-      const limited = checkRateLimit(
-        `login:${ip}:${emailKey}`,
+
+      // Two independent buckets: per IP (password spraying across many accounts) and per email (guessing one
+      // account from many addresses). Both must pass.
+      const ipLimit = checkProtectedRateLimit(
+        `login-ip:${ip}`,
         config.loginRateLimit.windowMs,
-        config.loginRateLimit.maxRequests,
+        config.loginRateLimit.maxRequestsPerIp,
       );
-      if (!limited.allowed) {
-        set.status = 429;
-        set.headers["retry-after"] = String(limited.retryAfterSec ?? 1);
-        return { error: "Rate limit exceeded" };
+      if (!ipLimit.allowed) {
+        return rateLimited(set, ipLimit.retryAfterSec);
       }
       if (!parsed.success) {
         set.status = 400;
         return { error: "Invalid login payload", details: parsed.error.flatten() };
       }
       const payload = parsed.data;
+
+      const emailLimit = checkProtectedRateLimit(
+        `login-email:${payload.email.toLowerCase()}`,
+        config.loginRateLimit.windowMs,
+        config.loginRateLimit.maxRequests,
+      );
+      if (!emailLimit.allowed) {
+        return rateLimited(set, emailLimit.retryAfterSec);
+      }
 
       const tokenVersionColumnExists = await hasTokenVersionColumn();
       const [users] = await db.query<RowDataPacket[]>(
@@ -49,13 +86,12 @@ export const registerAuthRoutes = (app: AppBase): AppBase =>
         [payload.email],
       );
 
-      if (!users.length || users[0].auth_provider !== "local" || !users[0].is_active) {
-        set.status = 401;
-        return { error: "Invalid credentials" };
-      }
+      const user = users[0];
+      const usable = Boolean(user && user.auth_provider === "local" && Number(user.is_active) === 1);
+      const hash = usable && user ? String(user.password_hash) : await dummyPasswordHash;
+      const valid = await Bun.password.verify(payload.password, hash).catch(() => false);
 
-      const valid = await Bun.password.verify(payload.password, String(users[0].password_hash));
-      if (!valid) {
+      if (!usable || !user || !valid) {
         set.status = 401;
         return { error: "Invalid credentials" };
       }
@@ -65,34 +101,49 @@ export const registerAuthRoutes = (app: AppBase): AppBase =>
        FROM org_user_roles our
        JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
        WHERE our.user_id = ? AND our.archived_at IS NULL`,
-        [users[0].id],
+        [user.id],
       );
 
-      const orgRoles = buildOrgRoles(roleRows);
-      const nowSec = Math.floor(Date.now() / 1000);
-
-      const token = await jwt.sign({
-        sub: String(users[0]?.id ?? ""),
-        email: String(users[0]?.email ?? ""),
-        name: String(users[0]?.display_name ?? ""),
-        orgRoles,
-        tokenVersion: Number(users[0]?.token_version ?? 1),
-        exp: nowSec + config.jwtTtlSec,
+      const { token, expiresInSec } = await signSession(jwt.sign as unknown as SignFn, {
+        sub: Number(user.id),
+        email: String(user.email ?? ""),
+        name: String(user.display_name ?? ""),
+        orgRoles: buildOrgRoles(roleRows),
+        tokenVersion: Number(user.token_version ?? 1),
       });
 
-      await db.execute("UPDATE users SET last_login_at = UTC_TIMESTAMP(3) WHERE id = ?", [users[0].id]);
+      await db.execute("UPDATE users SET last_login_at = UTC_TIMESTAMP(3) WHERE id = ?", [user.id]);
 
-      set.headers["set-cookie"] = sessionCookieHeader(token, config.jwtTtlSec);
-      return { accessToken: token };
+      set.headers["set-cookie"] = sessionCookieHeader(token, expiresInSec);
+      return { ok: true, expiresInSec };
     })
-    .post("/auth/logout", ({ set }) => {
+    .post("/auth/refresh", async ({ auth, set, jwt }) => {
+      if (!auth) {
+        set.status = 401;
+        set.headers["set-cookie"] = clearSessionCookieHeader();
+        return unauthorized;
+      }
+
+      // `auth` was rebuilt from the database by the session derive, so roles and token version are current.
+      const { token, expiresInSec } = await signSession(jwt.sign as unknown as SignFn, auth);
+      set.headers["set-cookie"] = sessionCookieHeader(token, expiresInSec);
+      return { ok: true, expiresInSec };
+    })
+    .post("/auth/logout", async ({ auth, set }) => {
+      if (auth) {
+        // Bump token_version so every outstanding copy of this session (other tabs, stolen cookies) dies too.
+        await revokeUserSessions(auth.sub);
+      }
       set.headers["set-cookie"] = clearSessionCookieHeader();
       return { ok: true };
     })
-    .get("/me", ({ auth, set }) => {
+    .get("/me", ({ auth, sessionExp, set }) => {
       if (!auth) {
         set.status = 401;
         return unauthorized;
       }
-      return auth;
+      return {
+        ...auth,
+        sessionExpiresAt: sessionExp ? new Date(sessionExp * 1000).toISOString().replace(/\.\d{3}Z$/, "Z") : null,
+      };
     }) as unknown as AppBase;

@@ -1,22 +1,29 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+
 import type { HTMLAttributes } from "react";
 import { cn } from "./cn";
 
 const variants = {
-  default: "border-slate-700 bg-slate-900 text-slate-200",
-  draft: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
-  in_progress: "border-amber-400/40 bg-amber-400/15 text-amber-100",
-  completed: "border-violet-400/40 bg-violet-400/15 text-violet-100",
-  archived: "border-slate-600 bg-slate-800 text-slate-300",
-  success: "border-emerald-500/40 bg-emerald-500/15 text-emerald-100",
-  warning: "border-amber-500/40 bg-amber-500/15 text-amber-100",
-  error: "border-rose-500/40 bg-rose-500/15 text-rose-100",
-  info: "border-sky-500/40 bg-sky-500/15 text-sky-100",
+  default: "border-border-strong bg-surface-2 text-fg",
+  draft: "border-success/40 bg-success/15 text-success-fg",
+  in_progress: "border-warning/40 bg-warning/15 text-warning-fg",
+  completed: "border-info/40 bg-info/15 text-info-fg",
+  archived: "border-border-strong bg-surface-3 text-fg-secondary",
+  success: "border-success/40 bg-success/15 text-success-fg",
+  warning: "border-warning/40 bg-warning/15 text-warning-fg",
+  error: "border-danger/40 bg-danger/15 text-danger-fg",
+  info: "border-primary/40 bg-primary/15 text-accent",
 } as const;
 
 type BadgeVariant = keyof typeof variants;
 
-export function Badge({ className, children, ...props }: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant }) {
-  const variant = (props.variant as BadgeVariant) ?? "default";
+export function Badge({
+  className,
+  children,
+  variant = "default",
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant }) {
   return (
     <span
       className={cn(

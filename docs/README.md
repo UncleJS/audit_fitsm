@@ -1,9 +1,8 @@
 # Documentation Index
 
-![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
-![Docs](https://img.shields.io/badge/docs-index-blue)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](../LICENSE) [![CI](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml) [![Docs: Mermaid diagrams](https://img.shields.io/badge/diagrams-Mermaid-FF3670?logo=mermaid)](https://mermaid.js.org)
 
-Index of project documentation pages.
+Index of the project documentation pages. The project overview, lifecycle scripts and license are in the [root README](../README.md).
 
 ## Table of Contents
 
@@ -11,41 +10,40 @@ Index of project documentation pages.
 - [Workflow and runtime docs](#workflow-and-runtime-docs)
 - [Operational docs](#operational-docs)
 - [Style and templates](#style-and-templates)
-- [License footer](#license-footer)
 
 ## Core docs
 
-- `api-surface.md` - HTTP route inventory and behavior notes
-- `security-model.md` - cookie session, authorization, and local secret policy
-- `ods-operational-mapping.md` - workbook import and mapping notes
-- `integration-testing.md` - readiness and integration validation
-- `ui-date-formatting.md` - required date/timestamp display rules
+- [api-surface.md](api-surface.md) - HTTP route inventory, status codes and behavior notes
+- [security-model.md](security-model.md) - cookie sessions, CSRF header, authorization, rate limits and secrets
+- [ods-operational-mapping.md](ods-operational-mapping.md) - FitSM workbook import and database mapping
+- [integration-testing.md](integration-testing.md) - readiness and integration validation
+- [ui-date-formatting.md](ui-date-formatting.md) - date, timestamp and UTC rules
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Workflow and runtime docs
 
-- `audit-workspace.md` - user-facing save flow, workspace layout, and troubleshooting
-- `development-runtime.md` - local Podman runtime model and rebuild/restart workflow
+- [audit-workspace.md](audit-workspace.md) - workspace layout, save flow and troubleshooting
+- [development-runtime.md](development-runtime.md) - rootless Podman + Quadlet runtime and rebuild workflow
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Operational docs
 
-- `ci-runbook.md` - CI troubleshooting and rerun guidance
-- `style-audit-report.md` - report writing style guide
+- [ci-runbook.md](ci-runbook.md) - CI pipeline, failure classes and rerun guidance
 
-[Go to TOC](#table-of-contents)
+Schema reference: the SQL migrations in [`db/migrations/`](../db/migrations) are the source of truth for tables and reporting views.
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Style and templates
 
-- `documentation-style.md` - markdown conventions for this repo
-- `TEMPLATE.md` - scaffold for new docs pages
+- [documentation-style.md](documentation-style.md) - Markdown rules for this repo (badges, TOC, back links, footer, Mermaid, dates)
+- [style-audit-report.md](style-audit-report.md) - dated documentation compliance checklist
+- [TEMPLATE.md](TEMPLATE.md) - template copied by `scripts/new-doc.sh`
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
-## License footer
+---
 
-© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
-
-[Go to TOC](#table-of-contents)
+© 2026 UncleJS — Licensed under [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.txt)

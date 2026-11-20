@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+import { rm } from "node:fs/promises";
 import type { AppBase } from "../app-base";
 import type { RowDataPacket } from "../support";
 import {
@@ -21,6 +24,7 @@ import {
   rowsToCsv,
   safeFileSegment,
   unauthorized,
+  withTransaction,
   writeFile,
 } from "../support";
 
@@ -260,7 +264,7 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
       }
 
       const generatedAt = new Date();
-      const generatedAtIso = generatedAt.toISOString().replace("T", " ").slice(0, 19) + " UTC";
+      const generatedAtIso = `${generatedAt.toISOString().replace("T", " ").slice(0, 19)} UTC`;
 
       const pdfBytes = await buildAuditPdfReport({
         audit: {
@@ -284,32 +288,47 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
       const relativePath = join(String(audit.org_id), `audit-${auditId}`, `${randomUUID()}-${fileName}`);
       const absPath = join(config.exportsDir, relativePath);
 
-      await mkdir(dirname(absPath), { recursive: true });
-      await writeFile(absPath, pdfBytes);
-
       const sha256Hex = createHash("sha256").update(pdfBytes).digest("hex");
       const fileSizeBytes = pdfBytes.byteLength;
 
-      await db.execute(
-        `UPDATE audit_pdf_exports
-       SET is_current = 0, updated_at = UTC_TIMESTAMP(3)
-       WHERE audit_id = ?
-         AND report_kind = 'FULL_ASSESSMENT_REPORT'
-         AND archived_at IS NULL
-         AND is_current = 1`,
-        [auditId],
-      );
+      // The file is written inside the transaction, before COMMIT: if writing fails the rows roll back, and if
+      // the DB work fails the orphan file is deleted, so a "current" export row always has a file on disk.
+      let fileWritten = false;
+      let exportId: number;
+      try {
+        exportId = await withTransaction(async (conn) => {
+          await conn.execute(
+            `UPDATE audit_pdf_exports
+           SET is_current = 0, updated_at = UTC_TIMESTAMP(3)
+           WHERE audit_id = ?
+             AND report_kind = 'FULL_ASSESSMENT_REPORT'
+             AND archived_at IS NULL
+             AND is_current = 1`,
+            [auditId],
+          );
 
-      const [insertResult] = await db.execute(
-        `INSERT INTO audit_pdf_exports
-         (audit_id, org_id, report_kind, file_name, file_path, file_size_bytes, sha256_hex, is_current, generated_by)
-       VALUES (?, ?, 'FULL_ASSESSMENT_REPORT', ?, ?, ?, ?, 1, ?)`,
-        [auditId, Number(audit.org_id), fileName, relativePath, fileSizeBytes, sha256Hex, auth.sub],
-      );
+          const [insertResult] = await conn.execute(
+            `INSERT INTO audit_pdf_exports
+             (audit_id, org_id, report_kind, file_name, file_path, file_size_bytes, sha256_hex, is_current, generated_by)
+           VALUES (?, ?, 'FULL_ASSESSMENT_REPORT', ?, ?, ?, ?, 1, ?)`,
+            [auditId, Number(audit.org_id), fileName, relativePath, fileSizeBytes, sha256Hex, auth.sub],
+          );
+
+          await mkdir(dirname(absPath), { recursive: true });
+          await writeFile(absPath, pdfBytes);
+          fileWritten = true;
+          return insertIdOf(insertResult);
+        });
+      } catch (error) {
+        if (fileWritten) {
+          await rm(absPath, { force: true }).catch(() => undefined);
+        }
+        throw error;
+      }
 
       set.status = 201;
       return {
-        id: insertIdOf(insertResult),
+        id: exportId,
         fileName,
         fileSizeBytes,
         generatedAt: generatedAtIso,

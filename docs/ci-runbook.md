@@ -1,184 +1,171 @@
 # CI Runbook
 
-![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
-![CI](https://img.shields.io/badge/ci-github_actions-2088FF)
-![Runtime](https://img.shields.io/badge/runtime-podman_only-5C4EE5)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](../LICENSE) [![CI](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml) [![Bun 1.2.22](https://img.shields.io/badge/Bun-1.2.22-000000?logo=bun)](https://bun.sh) [![Podman: rootless](https://img.shields.io/badge/Podman-rootless-892CA0?logo=podman)](https://podman.io)
 
-Troubleshooting guide for `.github/workflows/ci.yml` and `scripts/ci-strict.sh`.
+Pipeline overview and troubleshooting for `.github/workflows/ci.yml` and `scripts/ci-strict.sh`.
 
 ## Table of Contents
 
 - [Scope](#scope)
+- [Pipeline](#pipeline)
 - [Fast triage](#fast-triage)
 - [Common failures and fixes](#common-failures-and-fixes)
+  - [Static checks failure](#static-checks-failure)
+  - [Date-input policy failure](#date-input-policy-failure)
+  - [Image build failure](#image-build-failure)
+  - [Port preflight failure](#port-preflight-failure)
+  - [DB readiness timeout](#db-readiness-timeout)
+  - [API health or ready failing](#api-health-or-ready-failing)
+  - [Web check timeout](#web-check-timeout)
+  - [Docs route failure](#docs-route-failure)
+  - [Strict integration-suite failure](#strict-integration-suite-failure)
 - [Collect diagnostics](#collect-diagnostics)
 - [Re-run strategy](#re-run-strategy)
-- [License footer](#license-footer)
 
 ## Scope
 
-This runbook covers failures in the strict CI pipeline:
-
-- UI date-input policy enforcement
-- Podman install and build
-- Pod creation and container startup
-- MariaDB startup and connectivity
-- API/web startup inside `audit-fitsm-dev-ci`
-- strict readiness checks (`basic` + `extended` + integration suite)
-
-Primary files:
+This runbook covers the static job and the strict Podman job. Primary files:
 
 - `.github/workflows/ci.yml`
 - `scripts/ci-strict.sh`
-- `scripts/health-readiness.sh`
-- `apps/api/scripts/health-readiness.ts`
+- `scripts/health-readiness.sh` and `apps/api/scripts/health-readiness.ts`
+- `scripts/check-secrets.sh`, `scripts/check-ui-date-inputs.sh`
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
+
+## Pipeline
+
+The workflow runs on pull requests and on pushes to `main` or `master`. It has `permissions: contents: read`, and every action is pinned to a commit SHA.
+
+```mermaid
+flowchart LR
+  subgraph static["static job (Bun 1.2.22)"]
+    s1["bun install --frozen-lockfile"] --> s2["ShellCheck scripts/*.sh"] --> s3["UI date-input check"] --> s4["secret scan"] --> s5["lint (Biome)"] --> s6["typecheck"] --> s7["unit tests"]
+  end
+  subgraph strict["strict-readiness job"]
+    t1["build image localhost/audit-fitsm-dev:ci"] --> t2["pod audit-fitsm-ci: MariaDB + dev"] --> t3["migrate, bootstrap, import"] --> t4["backup / restore"] --> t5["web build"] --> t6["readiness strict"]
+  end
+  static --> strict
+```
+
+`scripts/ci-strict.sh` generates random DB, JWT and admin credentials per run as `audit-fitsm-ci-*` Podman secrets, and removes the pod, containers, volumes and secrets afterwards unless `KEEP_CONTAINERS=1`.
+
+[↑ Back to TOC](#table-of-contents)
 
 ## Fast triage
 
-1. Open the failing job step and identify the first failed command.
-2. Match the failing step to `scripts/ci-strict.sh`.
-3. Use the failure class below:
-   - date-input policy check failure
-   - host port preflight failure
-   - image build failure
-   - pod startup failure
-   - DB not ready
-   - API/web not reachable
-   - auth/readiness failure
-   - integration-suite failure
-4. Apply the fix and re-run CI.
+1. Open the failing job and find the first failed step.
+2. For the strict job, scroll to the end of the log: on failure the script prints `podman logs --tail 200` of the dev container (API and web) and the DB container.
+3. Match the failure to a class below, fix it and re-run.
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Common failures and fixes
 
-### 0) Date-input policy failure
+Each entry lists the symptom, typical causes and the fix.
 
-- Symptom: CI fails in `scripts/check-ui-date-inputs.sh`.
-- Typical causes:
-  - raw `type="date"` added outside wrapper component
-- Fix:
-  - move usage to `apps/web/app/components/date-only-input.tsx`
-  - re-run `scripts/check-ui-date-inputs.sh` locally
+[↑ Back to TOC](#table-of-contents)
 
-### 1) Image build failure (`podman build`)
+### Static checks failure
 
-- Symptom: CI fails during build stage.
-- Typical causes:
-  - package registry/transient network issue
-  - invalid `Containerfile.dev` change
-- Fix:
-  - re-run job once to rule out transient pull/install errors
-  - if persistent, verify `Containerfile.dev` locally with `podman build -f Containerfile.dev .`
+- Symptom: ShellCheck, lint, typecheck, unit tests or the secret scan fail in the static job.
+- Fix: run the same command in a Bun container (for example `bun run lint` inside `docker.io/oven/bun:1.2.22`), never on the host. For the secret scan, replace the literal with a Podman secret or a `<placeholder>`.
 
-### 2) Port preflight failure
+[↑ Back to TOC](#table-of-contents)
 
-- Symptom: CI/local strict script fails before build with host-port conflict.
-- Typical causes:
-  - local services already using `1260/1261/1262/1263`
-- Fix:
-  - stop conflicting services, or run local CI with alternate ports:
-  - inspect holders/mappings with `scripts/ports.sh 1260 1261 1262 1263`
+### Date-input policy failure
+
+- Symptom: `scripts/check-ui-date-inputs.sh` fails.
+- Cause: a raw `type="date"` input outside the wrapper component.
+- Fix: use `apps/web/app/components/date-only-input.tsx`, then re-run the script.
+
+[↑ Back to TOC](#table-of-contents)
+
+### Image build failure
+
+- Symptom: the job fails while building the image.
+- Causes: a transient registry or network issue, or a broken `Containerfile` change.
+- Fix: re-run once; if it persists, reproduce with `scripts/build.sh --no-cache`.
+
+[↑ Back to TOC](#table-of-contents)
+
+### Port preflight failure
+
+- Symptom: the script stops before the build with a host-port conflict.
+- Cause: something already listens on `1260` or `1261`.
+- Fix: stop the conflicting service (for a local run usually `scripts/stop.sh`), inspect with `scripts/ports.sh 1260 1261`, or use other ports:
 
 ```bash
-DB_PORT=2262 APP_PORT=2261 WEB_PORT=2260 bash ./scripts/ci-strict.sh
+APP_PORT=2261 WEB_PORT=2260 bash ./scripts/ci-strict.sh
 ```
 
-### 3) DB readiness timeout
+[↑ Back to TOC](#table-of-contents)
 
-- Symptom: failure around MariaDB wait loop.
-- Typical causes:
-  - bad DB env values
-  - startup delay under runner load
-- Fix:
-  - confirm `DB_USER`, `DB_PASSWORD`, `DB_NAME` align between DB and dev container env
-  - increase loop count/sleep in `scripts/ci-strict.sh` only if repeated under load
+### DB readiness timeout
 
-### 4) API `/health` or `/ready` failing
+- Symptom: failure in the MariaDB wait loop.
+- Causes: slow startup under runner load, or a DB init error (see the DB log printed at the end).
+- Fix: read the DB log; increase the wait only if the timeout repeats under load.
 
-- Symptom: readiness script fails at API checks.
-- Typical causes:
-  - API process did not start
-  - migration table unavailable
-- Fix:
-  - inspect `/tmp/api.log` from CI artifacts/log output path
-  - verify migration step completed before API checks
+[↑ Back to TOC](#table-of-contents)
 
-### 5) Web check timeout
+### API health or ready failing
 
-- Symptom: readiness fails at web HTTP check.
-- Typical causes:
-  - Next.js dev warm-up slower than expected
-  - process startup error
-- Fix:
-  - inspect `/tmp/web.log`
-  - if needed, tune readiness attempt count in `health-readiness.ts`
+- Symptom: the readiness script fails at `/health` or `/ready`.
+- Causes: the API process did not start, or migrations did not run.
+- Fix: read the dev container log printed at the end of the job; confirm the migrate step completed.
 
-### 5b) Docs route failure
+[↑ Back to TOC](#table-of-contents)
 
-- Symptom: integration or readiness checks fail when validating `/docs` or `/openapi.json`.
-- Typical causes:
-  - API started without the expected OpenAPI asset
-  - CSP or docs route regression
-- Fix:
-  - inspect API startup logs
-  - verify `apps/api/openapi/openapi.json` is present in the runtime image
-  - reproduce via the integration suite inside the dev container
+### Web check timeout
 
-### 6) Strict integration-suite failure
+- Symptom: readiness fails at the web HTTP check.
+- Causes: slow Next.js warm-up or a web startup error.
+- Fix: read the dev container log; if needed, tune the attempt count in `apps/api/scripts/health-readiness.ts`.
 
-- Symptom: readiness passes basic checks but fails on integration.
-- Typical causes:
-  - API contract/regression change
-  - auth/role behavior regression
-  - missing FitSM workbook when testing import-dependent behavior
-- Fix:
-  - inspect failing endpoint from test output
-  - note: CI now falls back to minimal seeded FitSM catalog when `FITSM_ODS_PATH` is missing
-  - for full-catalog import validation, provide `FITSM_ODS_PATH` to an available workbook inside the dev container
-  - reproduce inside dev container with:
+[↑ Back to TOC](#table-of-contents)
+
+### Docs route failure
+
+- Symptom: checks fail on `/docs` or `/openapi.json`.
+- Causes: missing `apps/api/openapi/openapi.json` in the image, a CSP regression, or a request without a session (both routes need one outside `development`/`test`).
+- Fix: read the API output in the dev container log and reproduce with the integration suite.
+
+[↑ Back to TOC](#table-of-contents)
+
+### Strict integration-suite failure
+
+- Symptom: basic checks pass but the integration suite fails.
+- Causes: an API contract or auth/role regression.
+- Fix: find the failing endpoint in the output. Without the workbook at `FITSM_ODS_PATH`, CI falls back to the minimal seeded FitSM catalog. Reproduce while the CI pod is kept:
 
 ```bash
+KEEP_CONTAINERS=1 bash ./scripts/ci-strict.sh
 podman exec audit-fitsm-dev-ci bun run --cwd /workspace/apps/api integration:test
 ```
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Collect diagnostics
 
-For local reproduction, run:
+Run the same pipeline locally (Podman only):
 
 ```bash
 bash ./scripts/ci-strict.sh
 ```
 
-If it fails, gather:
+On failure it prints the dev (API + web) and DB container logs. Also note the failing command and exit code. With `KEEP_CONTAINERS=1` the pod stays up for `podman logs audit-fitsm-dev-ci` and `podman logs audit-fitsm-db-ci`; `scripts/uninstall.sh` cleans up CI leftovers too.
 
-- container list and state
-- dev logs (`/tmp/api.log`, `/tmp/web.log`)
-- DB container logs
-- exact failing command and exit code
-
-When testing locally and you need to keep containers after failure:
-
-```bash
-KEEP_CONTAINERS=1 bash ./scripts/ci-strict.sh
-```
-
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Re-run strategy
 
-- Re-run once for transient network/build failures.
-- If repeated, fix in branch and re-run full workflow.
-- Prefer changing one variable at a time (build, DB readiness, API readiness, integration behavior) to keep root-cause clear.
+- Re-run once for transient network or build failures.
+- If the failure repeats, fix it on the branch and re-run the full workflow.
+- Change one variable at a time (build, DB readiness, API readiness, integration behavior) to keep the root cause clear.
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
-## License footer
+---
 
-© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
-
-[Go to TOC](#table-of-contents)
+© 2026 UncleJS — Licensed under [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.txt)

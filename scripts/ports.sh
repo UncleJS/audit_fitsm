@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 UncleJS
 set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  printf "Usage: scripts/ports.sh [PORT ...]   (default: 1260 1261 1263)\n"
+  printf "Shows host listeners and Podman port mappings for each port.\n"
+  exit 0
+fi
 
 PORTS=("$@")
 if [[ "${#PORTS[@]}" -eq 0 ]]; then
-  PORTS=(1260 1261 1262 1263)
+  PORTS=(1260 1261 1263)
 fi
 
 is_port_in_use() {

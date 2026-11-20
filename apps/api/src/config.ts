@@ -1,4 +1,6 @@
-const insecureDefaults = process.env.ALLOW_INSECURE_DEFAULTS === "1";
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+import { parsePositiveNumber } from "./env";
 
 const readEnv = (name: string, fallback?: string): string => {
   const value = process.env[name] ?? fallback;
@@ -8,34 +10,32 @@ const readEnv = (name: string, fallback?: string): string => {
   return value;
 };
 
+const envNumber = (name: string, fallback: number): number => parsePositiveNumber(name, process.env[name], fallback);
+
 const rejectDefaultSecret = (name: string, value: string, blocked: string): string => {
-  const productionLike = process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
-  if (value === blocked && (productionLike || !insecureDefaults)) {
-    throw new Error(
-      `${name} must be overridden. Local Quadlet and CI may set ALLOW_INSECURE_DEFAULTS=1; production and staging may not.`,
-    );
+  if (value === blocked) {
+    throw new Error(`${name} must be set to a real secret (install.sh creates it as a Podman secret).`);
   }
   return value;
 };
 
 export const config = {
-  appPort: Number(process.env.APP_PORT ?? 1261),
-  jwtSecret: rejectDefaultSecret(
-    "JWT_SECRET",
-    readEnv("JWT_SECRET", insecureDefaults ? "replace-with-strong-secret" : undefined),
-    "replace-with-strong-secret",
-  ),
-  jwtTtlSec: Math.max(60, Number(process.env.JWT_TTL_SEC ?? 900)),
+  appPort: envNumber("APP_PORT", 1261),
+  jwtSecret: rejectDefaultSecret("JWT_SECRET", readEnv("JWT_SECRET"), "replace-with-strong-secret"),
+  jwtTtlSec: Math.max(60, envNumber("JWT_TTL_SEC", 900)),
   exportsDir: process.env.EXPORTS_DIR ?? "/workspace/data/exports",
   trustProxy: process.env.TRUST_PROXY === "1",
-  allowInsecureDefaults: insecureDefaults,
   rateLimit: {
-    windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60000),
-    maxRequests: Number(process.env.RATE_LIMIT_MAX ?? 300),
+    windowMs: envNumber("RATE_LIMIT_WINDOW_MS", 60000),
+    maxRequests: envNumber("RATE_LIMIT_MAX", 300),
+    maxBuckets: envNumber("RATE_LIMIT_MAX_BUCKETS", 10000),
   },
   loginRateLimit: {
-    windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000),
-    maxRequests: Number(process.env.LOGIN_RATE_LIMIT_MAX ?? 10),
+    windowMs: envNumber("LOGIN_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000),
+    /** Attempts per email address per window. */
+    maxRequests: envNumber("LOGIN_RATE_LIMIT_MAX", 10),
+    /** Attempts per client IP per window (covers spraying many emails from one address). */
+    maxRequestsPerIp: envNumber("LOGIN_RATE_LIMIT_IP_MAX", 30),
   },
   cors: {
     allowedOrigins: String(process.env.CORS_ALLOWED_ORIGINS ?? "http://127.0.0.1:1260,http://localhost:1260")
@@ -45,13 +45,9 @@ export const config = {
   },
   db: {
     host: readEnv("DB_HOST", "127.0.0.1"),
-    port: Number(process.env.DB_PORT ?? 1262),
+    port: envNumber("DB_PORT", 3306),
     user: readEnv("DB_USER", "audit_app"),
-    password: rejectDefaultSecret(
-      "DB_PASSWORD",
-      readEnv("DB_PASSWORD", insecureDefaults ? "change_me" : undefined),
-      "change_me",
-    ),
+    password: rejectDefaultSecret("DB_PASSWORD", readEnv("DB_PASSWORD"), "change_me"),
     database: readEnv("DB_NAME", "audit_fitsm"),
   },
 };
