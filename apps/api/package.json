@@ -8,6 +8,7 @@
     "start": "bun src/index.ts",
     "db:migrate": "bun scripts/run-migrations.ts",
     "import:fitsm": "bun scripts/import-fitsm.ts",
+    "generate:fitsm-seed": "bun scripts/generate-fitsm-seed.ts",
     "bootstrap:admin": "bun scripts/bootstrap-admin.ts",
     "backup:db": "bun scripts/backup-db.ts",
     "restore:db": "bun scripts/restore-db.ts",

@@ -10,7 +10,7 @@ import { rowsToCsv } from "./csv";
 import { getDb, isDuplicateKeyError, type Queryable, withTransaction } from "./db";
 import { contentDispositionAttachment, resolveExportPath, safeFileSegment } from "./paths";
 import { buildAuditPdfReport } from "./pdf-report";
-import { checkProtectedRateLimit, checkRateLimit, clientAddress } from "./rate-limit";
+import { clientAddress } from "./rate-limit";
 import { hasRole, type RoleCode } from "./rbac";
 import { clearSessionCookieHeader, readSessionCookie, sessionCookieHeader } from "./session-cookie";
 import type { AuthPayload, AuthVia } from "./types";
@@ -130,8 +130,8 @@ export const revokeUserSessions = async (userId: number, executor: Queryable = d
     await executor.execute(
       `UPDATE users
        SET token_version = token_version + 1,
-           updated_at = UTC_TIMESTAMP(3)
-       WHERE id = ? AND archived_at IS NULL`,
+           updated_UTC = UTC_TIMESTAMP(3)
+       WHERE id = ? AND archived_UTC IS NULL`,
       [userId],
     );
     return;
@@ -139,8 +139,8 @@ export const revokeUserSessions = async (userId: number, executor: Queryable = d
 
   await executor.execute(
     `UPDATE users
-     SET updated_at = UTC_TIMESTAMP(3)
-     WHERE id = ? AND archived_at IS NULL`,
+     SET updated_UTC = UTC_TIMESTAMP(3)
+     WHERE id = ? AND archived_UTC IS NULL`,
     [userId],
   );
 };
@@ -224,9 +224,9 @@ export const getUserScope = async (userId: number): Promise<{ orgIds: number[]; 
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT our.org_id, r.code AS role_code
      FROM org_user_roles our
-     JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
+     JOIN roles r ON r.id = our.role_id AND r.archived_UTC IS NULL
      WHERE our.user_id = ?
-       AND our.archived_at IS NULL`,
+       AND our.archived_UTC IS NULL`,
     [userId],
   );
 
@@ -251,7 +251,7 @@ export const getAuditMeta = async (auditId: number): Promise<{ orgId: number; st
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT org_id, status
      FROM audits
-     WHERE id = ? AND archived_at IS NULL
+     WHERE id = ? AND archived_UTC IS NULL
      LIMIT 1`,
     [auditId],
   );
@@ -411,8 +411,6 @@ export const auditConclusionSchema = z.object({
 export type { AuthPayload, AuthVia, Queryable, RoleCode, RowDataPacket };
 export {
   buildAuditPdfReport,
-  checkProtectedRateLimit,
-  checkRateLimit,
   clearSessionCookieHeader,
   clientAddress,
   config,

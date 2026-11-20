@@ -87,8 +87,14 @@ Each request checks the JWT's token version against `users.token_version`, then 
 
 ## Rate limits
 
-- Global: per client IP, method and normalized route, `RATE_LIMIT_MAX` requests (default `300`) per `RATE_LIMIT_WINDOW_MS` (default `60000`).
-- Login: `LOGIN_RATE_LIMIT_IP_MAX` (default `30`) per IP and `LOGIN_RATE_LIMIT_MAX` (default `10`) per email address per `LOGIN_RATE_LIMIT_WINDOW_MS` (default 15 minutes).
+- Global, per `RATE_LIMIT_WINDOW_MS` (default `60000`), applied to every route:
+  - per client IP, method and normalized route: `RATE_LIMIT_MAX` requests (default `300`);
+  - per client IP across all routes: `RATE_LIMIT_IP_MAX` requests (default `1200`).
+- Login, per `LOGIN_RATE_LIMIT_WINDOW_MS` (default 15 minutes):
+  - per client IP: `LOGIN_RATE_LIMIT_IP_MAX` attempts (default `30`), counting every attempt;
+  - per email address and client IP: `LOGIN_RATE_LIMIT_MAX` failed attempts (default `10`);
+  - per email address across all IPs: `LOGIN_RATE_LIMIT_EMAIL_GLOBAL_MAX` failed attempts (default `100`), as a brute-force backstop.
+  - Emails are trimmed and lowercased for these keys. A successful login clears the email-and-IP bucket and does not count against the global email cap, so failing against someone else's email from one address cannot lock that user out from other addresses.
 - Exceeding a limit returns `429`.
 - `X-Forwarded-For` is used only when `TRUST_PROXY=1`, and then only its rightmost hop (the one the trusted proxy added).
 

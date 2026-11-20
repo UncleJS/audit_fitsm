@@ -31,7 +31,7 @@ Policy for date-only inputs, timestamp rendering and UTC handling across the dat
 - The API connection pool uses `timezone: "Z"` and runs `SET time_zone = '+00:00'` on every connection (`apps/api/src/db.ts`).
 - The dev container runs with `TZ=UTC`.
 - The API returns ISO 8601 UTC strings; the UI converts them to local time for display and converts local input back to UTC before saving.
-- Known gap: the timestamp columns still use `*_at` names (for example `created_at`). The rename to the `*_UTC` suffix is deferred; the values are already UTC.
+- Every date/time column, date-only ones included, uses the `*_UTC` suffix (for example `created_UTC`, `audit_date_UTC`), and API JSON keys match. Migration `0016_utc_column_names.sql` renamed the older `*_at` columns.
 
 [↑ Back to TOC](#table-of-contents)
 

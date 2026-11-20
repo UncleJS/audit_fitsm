@@ -21,3 +21,7 @@ data
 .env
 .env.*
 !.env.example
+
+# FitSM-6 workbook downloads (CC BY-ND 4.0); scripts podman cp them in when needed
+FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods
+FitSM-6_Assessment_and_Audit_Tool_V3.0.3.xlsx

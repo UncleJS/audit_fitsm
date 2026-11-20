@@ -7,7 +7,7 @@ import { aggregateTrendsByAudit, latestTrends, sparkline, type TrendRow, trendSp
 const row = (overrides: Partial<TrendRow>): TrendRow => ({
   org_id: 1,
   audit_id: 1,
-  audit_date: "2026-01-01",
+  audit_date_UTC: "2026-01-01",
   process_id: 1,
   process_code: "PR1",
   process_abbreviation: "SPM",
@@ -22,20 +22,20 @@ describe("aggregateTrendsByAudit", () => {
   const rows = [
     row({
       audit_id: 2,
-      audit_date: "2026-03-01",
+      audit_date_UTC: "2026-03-01",
       average_capability_score: 2,
       scored_requirements: 3,
       total_requirements: 4,
     }),
     row({
       audit_id: 2,
-      audit_date: "2026-03-01",
+      audit_date_UTC: "2026-03-01",
       average_capability_score: 4,
       scored_requirements: 1,
       total_requirements: 2,
     }),
-    row({ audit_id: 2, audit_date: "2026-03-01", average_capability_score: null, total_requirements: 5 }),
-    row({ audit_id: 1, audit_date: "2026-01-15", average_capability_score: null, total_requirements: 3 }),
+    row({ audit_id: 2, audit_date_UTC: "2026-03-01", average_capability_score: null, total_requirements: 5 }),
+    row({ audit_id: 1, audit_date_UTC: "2026-01-15", average_capability_score: null, total_requirements: 3 }),
   ];
 
   it("averages per-process scores and sums requirement counts per audit", () => {

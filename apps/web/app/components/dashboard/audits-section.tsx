@@ -13,9 +13,9 @@ type AuditListItem = {
   id: number;
   name: string;
   status: string;
-  audit_date: string;
-  created_at?: string;
-  updated_at?: string;
+  audit_date_UTC: string;
+  created_UTC?: string;
+  updated_UTC?: string;
 };
 
 export default function AuditsSection({
@@ -152,11 +152,11 @@ export default function AuditsSection({
                       <td>
                         <Badge variant={statusVariant(audit.status)}>{audit.status.replace("_", " ")}</Badge>
                       </td>
-                      <td>{formatDateOnly(audit.audit_date)}</td>
+                      <td>{formatDateOnly(audit.audit_date_UTC)}</td>
                       <td>
-                        {audit.updated_at
-                          ? formatLocalTimestamp(audit.updated_at)
-                          : formatDateOnly(audit.audit_date) || "—"}
+                        {audit.updated_UTC
+                          ? formatLocalTimestamp(audit.updated_UTC)
+                          : formatDateOnly(audit.audit_date_UTC) || "—"}
                       </td>
                       <td>
                         <Button

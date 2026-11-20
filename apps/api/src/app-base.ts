@@ -2,13 +2,12 @@
 // Copyright (C) 2026 UncleJS
 import { jwt } from "@elysiajs/jwt";
 import Elysia from "elysia";
-import { normalizeRoutePath, setRateLimitMaxBuckets } from "./rate-limit";
+import { checkRequestRateLimit, normalizeRoutePath, setRateLimitMaxBuckets } from "./rate-limit";
 import type { AuthPayload, RowDataPacket } from "./support";
 import {
   anonymousSession,
   applyCorsHeaders,
   buildOrgRoles,
-  checkRateLimit,
   claimRecord,
   clientAddress,
   config,
@@ -72,8 +71,7 @@ export const createAppBase = () => {
       const ip = clientAddress(request, server, config.trustProxy);
       const method = request.method.toUpperCase();
       const route = normalizeRoutePath(new URL(request.url).pathname);
-      const bucketKey = `${ip}:${method}:${route}`;
-      const rate = checkRateLimit(bucketKey, config.rateLimit.windowMs, config.rateLimit.maxRequests);
+      const rate = checkRequestRateLimit(ip, method, route, config.rateLimit);
 
       if (!rate.allowed) {
         set.status = 429;
@@ -161,11 +159,11 @@ export const createAppBase = () => {
         tokenVersionColumnExists
           ? `SELECT id, email, display_name, is_active, token_version
            FROM users
-           WHERE id = ? AND archived_at IS NULL
+           WHERE id = ? AND archived_UTC IS NULL
            LIMIT 1`
           : `SELECT id, email, display_name, is_active
            FROM users
-           WHERE id = ? AND archived_at IS NULL
+           WHERE id = ? AND archived_UTC IS NULL
            LIMIT 1`,
         [userId],
       );
@@ -186,8 +184,8 @@ export const createAppBase = () => {
       const [roleRows] = await db.query<RowDataPacket[]>(
         `SELECT our.org_id, r.code AS role_code
        FROM org_user_roles our
-       JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
-       WHERE our.user_id = ? AND our.archived_at IS NULL`,
+       JOIN roles r ON r.id = our.role_id AND r.archived_UTC IS NULL
+       WHERE our.user_id = ? AND our.archived_UTC IS NULL`,
         [userId],
       );
 

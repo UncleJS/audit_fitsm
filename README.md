@@ -176,7 +176,7 @@ scripts/migrate.sh
 scripts/bootstrap-admin.sh admin@example.com "System Admin" "Default Organization"
 ```
 
-4. Optional: import the full FitSM workbook (runs inside the dev container):
+4. Optional: import a filled-in FitSM workbook as an example audit. The full FitSM-6 catalog (processes, requirements, guidance) already ships as migration `0017_fitsm6_catalog_seed.sql`, so this is only needed for the example data. Download the workbook from [fitsm.eu](https://www.fitsm.eu/downloads/), place it at the repo root, then run:
 
 ```bash
 scripts/import-fitsm.sh 1 1 "Initial Imported Audit"
@@ -233,7 +233,8 @@ It keeps, unless asked:
 |--------|------|
 | `migrate.sh` | Apply the SQL migrations in `db/migrations/`. |
 | `bootstrap-admin.sh [email] [display-name] [org-name]` | Create or update the first admin. Password from `BOOTSTRAP_ADMIN_PASSWORD` or a prompt, at least 12 characters. |
-| `import-fitsm.sh [org-id] [user-id] [audit-name] [audit-date]` | Import the FitSM workbook into a new audit. |
+| `import-fitsm.sh [--file PATH] [org-id] [user-id] [audit-name] [audit-date]` | Import a FitSM workbook (`.xlsx` or `.ods`, default at the repo root) into a new audit. The file is copied into the dev container with `podman cp`. |
+| `generate-fitsm-seed.sh [workbook-path]` | Regenerate `db/migrations/0017_fitsm6_catalog_seed.sql` from the official workbook (needs the dev container running). |
 | `backup-db.sh` | Write a zip backup to the `audit-fitsm-backups` volume (`/workspace/data/backups`). |
 | `list-backups.sh` | List the backups. |
 | `restore-db.sh /workspace/data/backups/<file>.zip` | Restore a backup. It takes a pre-restore backup first and refuses a dump made for a different database name. The underlying `restore:db` script also accepts `--force` and `--skip-pre-backup`. |
@@ -358,7 +359,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit tests, secret scan, t
 - MariaDB runs with `--default-time-zone=+00:00` and `TZ=UTC`; the API pool uses time zone `Z` and sets `time_zone` on every connection.
 - The API sends and receives timestamps as ISO 8601 UTC (`2026-11-20T14:05:09Z`).
 - The web UI shows local time as `yyyy-MM-dd HH:mm:ss` and dates as `yyyy-MM-dd`.
-- Known gap: timestamp columns still use `*_at` names; the rename to `*_UTC` is deferred.
+- Every date/time column uses the `*_UTC` suffix (`created_UTC`, `updated_UTC`, `archived_UTC`, `audit_date_UTC`, …); migration `0016_utc_column_names.sql` renamed the older `*_at` columns. API JSON keys use the same names.
 
 See [docs/ui-date-formatting.md](docs/ui-date-formatting.md).
 
@@ -381,7 +382,7 @@ Copyright (C) 2026 UncleJS. This program is free software: you can redistribute 
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [LICENSE](LICENSE) file for the full text.
 
-FitSM attribution: the FitSM framework, terminology and assessment workbook are credited to [FitSM](https://www.fitsm.eu/) and remain under their own terms.
+FitSM content: `db/migrations/0017_fitsm6_catalog_seed.sql` reproduces, verbatim and unmodified, the process names, requirements and guidance of "FitSM-6: Capability / Maturity Assessment Scheme" (Assessment and Audit Tool, Version 3.0.3) by the FitSM working group / FitSM e.V. ([fitsm.eu](https://www.fitsm.eu/)). That content is licensed under [CC BY-ND 4.0](https://creativecommons.org/licenses/by-nd/4.0/), not the AGPL. FitSM was co-funded by the European Commission under contract number 312851. FitSM and the FitSM logo are trademarks registered by FitSM e.V. on behalf of the FitSM Committee; their use here does not signify any affiliation with or endorsement by the FitSM Committee or FitSM e.V. See [NOTICE](NOTICE).
 
 [↑ Back to TOC](#table-of-contents)
 

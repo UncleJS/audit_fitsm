@@ -4,7 +4,7 @@
 export type TrendRow = {
   org_id: number;
   audit_id: number;
-  audit_date: string;
+  audit_date_UTC: string;
   process_id: number;
   process_code: string;
   process_abbreviation: string;
@@ -37,7 +37,14 @@ export const aggregateTrendsByAudit = (rows: TrendRow[], audits: TrendAuditMeta[
     const auditId = Number(row.audit_id);
     let current = byAudit.get(auditId);
     if (!current) {
-      current = { auditId, auditDate: String(row.audit_date), avgSum: 0, avgCount: 0, scoredReqSum: 0, totalReqSum: 0 };
+      current = {
+        auditId,
+        auditDate: String(row.audit_date_UTC),
+        avgSum: 0,
+        avgCount: 0,
+        scoredReqSum: 0,
+        totalReqSum: 0,
+      };
       byAudit.set(auditId, current);
     }
 

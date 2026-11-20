@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 UncleJS
 import type { AppBase } from "../app-base";
+import { checkLoginEmailRateLimit, checkLoginIpRateLimit, recordLoginSuccess } from "../rate-limit";
 import type { AuthPayload, RowDataPacket } from "../support";
 import {
   buildOrgRoles,
-  checkProtectedRateLimit,
   clearSessionCookieHeader,
   clientAddress,
   config,
@@ -47,13 +47,11 @@ export const registerAuthRoutes = (app: AppBase): AppBase =>
       const parsed = loginSchema.safeParse(body);
       const ip = clientAddress(request, server, config.trustProxy);
 
-      // Two independent buckets: per IP (password spraying across many accounts) and per email (guessing one
-      // account from many addresses). Both must pass.
-      const ipLimit = checkProtectedRateLimit(
-        `login-ip:${ip}`,
-        config.loginRateLimit.windowMs,
-        config.loginRateLimit.maxRequestsPerIp,
-      );
+      // Per IP (password spraying across many accounts) counts every attempt. The email buckets are keyed per
+      // (email, IP) plus a much higher per-email cap across all IPs, so failing against someone else's email
+      // from one address cannot lock them out everywhere. All must pass; a successful login refunds the email
+      // buckets so only failures stay counted.
+      const ipLimit = checkLoginIpRateLimit(ip, config.loginRateLimit);
       if (!ipLimit.allowed) {
         return rateLimited(set, ipLimit.retryAfterSec);
       }
@@ -63,11 +61,7 @@ export const registerAuthRoutes = (app: AppBase): AppBase =>
       }
       const payload = parsed.data;
 
-      const emailLimit = checkProtectedRateLimit(
-        `login-email:${payload.email.toLowerCase()}`,
-        config.loginRateLimit.windowMs,
-        config.loginRateLimit.maxRequests,
-      );
+      const emailLimit = checkLoginEmailRateLimit(payload.email, ip, config.loginRateLimit);
       if (!emailLimit.allowed) {
         return rateLimited(set, emailLimit.retryAfterSec);
       }
@@ -77,11 +71,11 @@ export const registerAuthRoutes = (app: AppBase): AppBase =>
         tokenVersionColumnExists
           ? `SELECT id, email, password_hash, display_name, auth_provider, is_active, token_version
            FROM users
-           WHERE email = ? AND archived_at IS NULL
+           WHERE email = ? AND archived_UTC IS NULL
            LIMIT 1`
           : `SELECT id, email, password_hash, display_name, auth_provider, is_active
            FROM users
-           WHERE email = ? AND archived_at IS NULL
+           WHERE email = ? AND archived_UTC IS NULL
            LIMIT 1`,
         [payload.email],
       );
@@ -96,11 +90,13 @@ export const registerAuthRoutes = (app: AppBase): AppBase =>
         return { error: "Invalid credentials" };
       }
 
+      recordLoginSuccess(payload.email, ip);
+
       const [roleRows] = await db.query<RowDataPacket[]>(
         `SELECT our.org_id, r.code AS role_code
        FROM org_user_roles our
-       JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
-       WHERE our.user_id = ? AND our.archived_at IS NULL`,
+       JOIN roles r ON r.id = our.role_id AND r.archived_UTC IS NULL
+       WHERE our.user_id = ? AND our.archived_UTC IS NULL`,
         [user.id],
       );
 
@@ -112,7 +108,7 @@ export const registerAuthRoutes = (app: AppBase): AppBase =>
         tokenVersion: Number(user.token_version ?? 1),
       });
 
-      await db.execute("UPDATE users SET last_login_at = UTC_TIMESTAMP(3) WHERE id = ?", [user.id]);
+      await db.execute("UPDATE users SET last_login_UTC = UTC_TIMESTAMP(3) WHERE id = ?", [user.id]);
 
       set.headers["set-cookie"] = sessionCookieHeader(token, expiresInSec);
       return { ok: true, expiresInSec };

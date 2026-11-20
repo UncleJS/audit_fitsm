@@ -1,207 +1,51 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 UncleJS
-import { readFile } from "node:fs/promises";
-import { XMLParser } from "fast-xml-parser";
-import JSZip from "jszip";
+import { existsSync } from "node:fs";
 import mysql from "mysql2/promise";
 import { config } from "../src/config";
+import {
+  buildCatalog,
+  capabilityScoreLabel,
+  extractProcessCode,
+  GUIDANCE_SCORE_LABELS,
+  parseWorkbook,
+  REQUIREMENT_CODE_PATTERN,
+  scopeCode,
+  toTargetLevel,
+} from "./fitsm-catalog";
 
-type SheetRows = string[][];
+// Accepts the workbook as .xlsx or .ods; without an argument the repo-root .xlsx is used, falling back to the .ods.
+const defaultWorkbookPath = (): string => {
+  const xlsx = "../../FitSM-6_Assessment_and_Audit_Tool_V3.0.3.xlsx";
+  const ods = "../../FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods";
+  return existsSync(xlsx) ? xlsx : ods;
+};
 
-const odsPath = process.argv[2] ?? "../../FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods";
+const workbookPath = process.argv[2] || defaultWorkbookPath();
 const orgId = Number(process.argv[3] ?? 1);
 const actorUserId = Number(process.argv[4] ?? 1);
 const auditName = process.argv[5] ?? "Imported FitSM Assessment";
 const auditDate = process.argv[6] ?? new Date().toISOString().slice(0, 10);
 
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  removeNSPrefix: true,
-  attributeNamePrefix: "@_",
-  processEntities: false,
-});
-
-const asArray = <T>(value: T | T[] | undefined): T[] => {
-  if (!value) return [];
-  return Array.isArray(value) ? value : [value];
-};
-
-const textFromP = (pNode: unknown): string => {
-  if (pNode === undefined || pNode === null) return "";
-  if (typeof pNode === "string") return pNode.trim();
-  if (Array.isArray(pNode)) return pNode.map(textFromP).filter(Boolean).join("\n");
-  if (typeof pNode === "object") {
-    if ((pNode as any)["#text"]) return String((pNode as any)["#text"]).trim();
-    return Object.values(pNode as Record<string, unknown>)
-      .map(textFromP)
-      .filter(Boolean)
-      .join("\n");
-  }
-  return "";
-};
-
-const rowToCells = (rowNode: any, maxCols = 20): string[] => {
-  const cells = asArray(rowNode?.["table-cell"]);
-  const result: string[] = [];
-
-  for (const cell of cells) {
-    const repeat = Number(cell?.["@_number-columns-repeated"] ?? 1);
-    const text = textFromP(cell?.p);
-
-    for (let i = 0; i < repeat; i += 1) {
-      result.push(text);
-      if (result.length >= maxCols) break;
-    }
-
-    if (result.length >= maxCols) break;
-  }
-
-  while (result.length > 0 && !result[result.length - 1]) {
-    result.pop();
-  }
-
-  return result;
-};
-
-const parseSheets = async (filePath: string): Promise<Record<string, SheetRows>> => {
-  const buffer = await readFile(filePath);
-  const zip = await JSZip.loadAsync(buffer);
-  const contentXml = await zip.file("content.xml")?.async("string");
-
-  if (!contentXml) {
-    throw new Error("ODS content.xml not found");
-  }
-
-  const document = parser.parse(contentXml);
-  const tables = asArray(document?.["document-content"]?.body?.spreadsheet?.table);
-  const sheets: Record<string, SheetRows> = {};
-
-  for (const table of tables) {
-    const name = String(table?.["@_name"] ?? "");
-    if (!name) continue;
-
-    const rows = asArray(table?.["table-row"]);
-    const extracted: string[][] = [];
-
-    for (const row of rows) {
-      const rowRepeat = Number(row?.["@_number-rows-repeated"] ?? 1);
-      const values = rowToCells(row, 20);
-      const hasValue = values.some((entry) => entry && entry.trim().length > 0);
-
-      if (!hasValue) {
-        continue;
-      }
-
-      extracted.push(values.map((entry) => entry.trim()));
-
-      if (rowRepeat > 1 && extracted.length > 5000) {
-        break;
-      }
-    }
-
-    sheets[name] = extracted;
-  }
-
-  return sheets;
-};
-
-const capabilityScoreLabel = (raw: string): string => {
-  const value = (raw ?? "").trim();
-  if (!value) return "Select …";
-  if (["0", "1", "2", "3", "4", "Select …"].includes(value)) return value;
-  return "Select …";
-};
-
-const scopeCode = (label: string): string => {
-  const normalized = (label ?? "").toLowerCase();
-  if (normalized.includes("out")) return "OUT_OF_SCOPE";
-  return "IN_SCOPE";
-};
-
-const extractProcessCode = (processLabel: string): string => {
-  return String(processLabel ?? "")
-    .split(":")[0]
-    .trim();
-};
-
-const toTargetLevel = (value: unknown, fallback = 2): number => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  if (n < 1) return 1;
-  if (n > 4) return 4;
-  return Math.trunc(n);
-};
-
 const main = async () => {
-  const sheets = await parseSheets(odsPath);
+  const sheets = await parseWorkbook(workbookPath);
   const assessmentRows = sheets["3. Assessment"] ?? [];
   const scopeRows = sheets["2. Scope & Goals"] ?? [];
   const detailRows = sheets["8. Audit Details"] ?? [];
   const conclusionsRows = sheets["7. Conclusions"] ?? [];
 
-  const requirementRowRegex = /^(GR|PR)\d+\.\d+$/;
-  const processMap = new Map<
-    string,
-    {
-      code: string;
-      abbreviation: string;
-      name: string;
-      kind: "GR" | "PR";
-      defaultCertGoal: number;
-      sortOrder: number;
-    }
-  >();
-  const requirements: Array<{
-    processCode: string;
-    code: string;
-    requirementText: string;
-    sortOrder: number;
-    guidance: Record<string, string>;
-  }> = [];
-
-  const processRequirementCount = new Map<string, number>();
-
-  for (const row of assessmentRows) {
-    const requirementCode = row[4] ?? "";
-    if (!requirementRowRegex.test(requirementCode)) {
-      continue;
-    }
-
-    const processCode = extractProcessCode(row[2]);
-    const abbreviation = row[3] ?? "";
-    const processName = row[2] ?? processCode;
-    const certGoal = toTargetLevel(row[1] ?? 2, 2);
-    const sortOrder = processMap.size + 1;
-
-    if (!processMap.has(processCode)) {
-      processMap.set(processCode, {
-        code: processCode,
-        abbreviation,
-        name: processName,
-        kind: processCode.startsWith("GR") ? "GR" : "PR",
-        defaultCertGoal: toTargetLevel(certGoal, 2),
-        sortOrder,
-      });
-      processRequirementCount.set(processCode, 0);
-    }
-
-    const newSort = (processRequirementCount.get(processCode) ?? 0) + 1;
-    processRequirementCount.set(processCode, newSort);
-
-    requirements.push({
-      processCode,
-      code: requirementCode,
-      requirementText: row[5] ?? "",
-      sortOrder: newSort,
-      guidance: {
-        "0": row[6] ?? "",
-        "1": row[7] ?? "",
-        "2": row[8] ?? "",
-        "3": row[9] ?? "",
-        "4": row[10] ?? "",
-      },
-    });
+  const catalog = buildCatalog(sheets);
+  const processMap = new Map(catalog.processes.map((item) => [item.code, item]));
+  const guidanceByRequirement = new Map<string, Record<string, string>>();
+  for (const item of catalog.guidance) {
+    const entry = guidanceByRequirement.get(item.requirementCode) ?? {};
+    entry[item.scoreLabel] = item.guidanceText;
+    guidanceByRequirement.set(item.requirementCode, entry);
   }
+  const requirements = catalog.requirements.map((item) => ({
+    ...item,
+    guidance: guidanceByRequirement.get(item.code) ?? {},
+  }));
 
   const connection = await mysql.createConnection({
     host: config.db.host,
@@ -217,14 +61,14 @@ const main = async () => {
 
   try {
     const [orgRows] = await connection.query(
-      "SELECT id FROM organizations WHERE id = ? AND archived_at IS NULL LIMIT 1",
+      "SELECT id FROM organizations WHERE id = ? AND archived_UTC IS NULL LIMIT 1",
       [orgId],
     );
     if (!Array.isArray(orgRows) || orgRows.length === 0) {
       throw new Error(`Organization ${orgId} does not exist`);
     }
 
-    const [userRows] = await connection.query("SELECT id FROM users WHERE id = ? AND archived_at IS NULL LIMIT 1", [
+    const [userRows] = await connection.query("SELECT id FROM users WHERE id = ? AND archived_UTC IS NULL LIMIT 1", [
       actorUserId,
     ]);
     if (!Array.isArray(userRows) || userRows.length === 0) {
@@ -241,7 +85,7 @@ const main = async () => {
            kind = VALUES(kind),
            sort_order = VALUES(sort_order),
            default_cert_goal_level = VALUES(default_cert_goal_level),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_UTC = UTC_TIMESTAMP(3)`,
         [
           processItem.code,
           processItem.abbreviation,
@@ -253,7 +97,7 @@ const main = async () => {
       );
     }
 
-    const [processRows] = await connection.query("SELECT id, code FROM processes WHERE archived_at IS NULL");
+    const [processRows] = await connection.query("SELECT id, code FROM processes WHERE archived_UTC IS NULL");
     const processIdByCode = new Map<string, number>();
     for (const row of processRows as any[]) {
       processIdByCode.set(String(row.code), Number(row.id));
@@ -269,18 +113,18 @@ const main = async () => {
          ON DUPLICATE KEY UPDATE
            requirement_text = VALUES(requirement_text),
            sort_order = VALUES(sort_order),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_UTC = UTC_TIMESTAMP(3)`,
         [processId, requirement.code, requirement.requirementText, requirement.sortOrder],
       );
     }
 
-    const [requirementRows] = await connection.query("SELECT id, code FROM requirements WHERE archived_at IS NULL");
+    const [requirementRows] = await connection.query("SELECT id, code FROM requirements WHERE archived_UTC IS NULL");
     const requirementIdByCode = new Map<string, number>();
     for (const row of requirementRows as any[]) {
       requirementIdByCode.set(String(row.code), Number(row.id));
     }
 
-    const [scoreRows] = await connection.query("SELECT id, label FROM capability_scores WHERE archived_at IS NULL");
+    const [scoreRows] = await connection.query("SELECT id, label FROM capability_scores WHERE archived_UTC IS NULL");
     const scoreIdByLabel = new Map<string, number>();
     for (const row of scoreRows as any[]) {
       scoreIdByLabel.set(String(row.label), Number(row.id));
@@ -290,7 +134,7 @@ const main = async () => {
       const requirementId = requirementIdByCode.get(requirement.code);
       if (!requirementId) continue;
 
-      for (const level of ["0", "1", "2", "3", "4"]) {
+      for (const level of GUIDANCE_SCORE_LABELS) {
         const text = requirement.guidance[level];
         if (!text) continue;
 
@@ -302,20 +146,20 @@ const main = async () => {
            VALUES (?, ?, ?)
            ON DUPLICATE KEY UPDATE
              guidance_text = VALUES(guidance_text),
-             updated_at = UTC_TIMESTAMP(3)`,
+             updated_UTC = UTC_TIMESTAMP(3)`,
           [requirementId, scoreId, text],
         );
       }
     }
 
     const [auditInsert] = await connection.execute(
-      `INSERT INTO audits (org_id, name, status, audit_date, created_by)
+      `INSERT INTO audits (org_id, name, status, audit_date_UTC, created_by)
        VALUES (?, ?, 'draft', ?, ?)`,
       [orgId, auditName, auditDate, actorUserId],
     );
     const auditId = Number((auditInsert as any).insertId);
 
-    const [scopeRowsLookup] = await connection.query("SELECT id, code FROM scope_options WHERE archived_at IS NULL");
+    const [scopeRowsLookup] = await connection.query("SELECT id, code FROM scope_options WHERE archived_UTC IS NULL");
     const scopeIdByCode = new Map<string, number>();
     for (const row of scopeRowsLookup as any[]) {
       scopeIdByCode.set(String(row.code), Number(row.id));
@@ -345,14 +189,14 @@ const main = async () => {
            custom_goal_level = VALUES(custom_goal_level),
            scope_option_id = VALUES(scope_option_id),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_UTC = UTC_TIMESTAMP(3)`,
         [auditId, processId, toTargetLevel(certGoal, 2), customGoal, scopeOptionId, actorUserId],
       );
     }
 
     for (const row of assessmentRows) {
       const requirementCode = row[4] ?? "";
-      if (!requirementRowRegex.test(requirementCode)) continue;
+      if (!REQUIREMENT_CODE_PATTERN.test(requirementCode)) continue;
 
       const requirementId = requirementIdByCode.get(requirementCode);
       if (!requirementId) continue;
@@ -370,13 +214,13 @@ const main = async () => {
            comment_text = VALUES(comment_text),
            evidence_text = VALUES(evidence_text),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_UTC = UTC_TIMESTAMP(3)`,
         [auditId, requirementId, scoreId, commentText, evidenceText, actorUserId],
       );
     }
 
     const [fieldRows] = await connection.query(
-      "SELECT id, field_key FROM audit_detail_fields WHERE archived_at IS NULL",
+      "SELECT id, field_key FROM audit_detail_fields WHERE archived_UTC IS NULL",
     );
     const fieldIdByKey = new Map<string, number>();
     for (const row of fieldRows as any[]) {
@@ -412,7 +256,7 @@ const main = async () => {
          ON DUPLICATE KEY UPDATE
            response_text = VALUES(response_text),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_UTC = UTC_TIMESTAMP(3)`,
         [auditId, fieldId, response || null, actorUserId],
       );
     }
@@ -429,7 +273,7 @@ const main = async () => {
        ON DUPLICATE KEY UPDATE
          conclusion_text = VALUES(conclusion_text),
          updated_by = VALUES(updated_by),
-         updated_at = UTC_TIMESTAMP(3)`,
+         updated_UTC = UTC_TIMESTAMP(3)`,
       [auditId, conclusionText, actorUserId],
     );
 

@@ -16,6 +16,7 @@
     "stack:uninstall": "bash ./scripts/uninstall.sh",
     "db:migrate": "bash ./scripts/migrate.sh",
     "import:fitsm": "bash ./scripts/import-fitsm.sh",
+    "generate:fitsm-seed": "bash ./scripts/generate-fitsm-seed.sh",
     "bootstrap:admin": "bash ./scripts/bootstrap-admin.sh",
     "backup:db": "bash ./scripts/backup-db.sh",
     "restore:db": "bash ./scripts/restore-db.sh",
@@ -26,7 +27,7 @@
     "check:secrets": "bash ./scripts/check-secrets.sh",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
-    "test:unit": "bun test apps/api/src apps/web/app/lib",
+    "test:unit": "bun test apps/api/src apps/api/scripts apps/web/app/lib",
     "health:readiness": "bash ./scripts/health-readiness.sh",
     "integration:test": "bash ./scripts/integration-test.sh"
   },

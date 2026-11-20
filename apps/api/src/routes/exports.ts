@@ -56,11 +56,11 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
          file_size_bytes,
          sha256_hex,
          is_current,
-         generated_at,
+         generated_UTC,
          generated_by
        FROM audit_pdf_exports
-       WHERE audit_id = ? AND archived_at IS NULL
-       ORDER BY generated_at DESC, id DESC`,
+       WHERE audit_id = ? AND archived_UTC IS NULL
+       ORDER BY generated_UTC DESC, id DESC`,
         [auditId],
       );
 
@@ -130,7 +130,7 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
         `SELECT *
        FROM v_trends
        WHERE org_id = ?
-       ORDER BY audit_date DESC, process_code`,
+       ORDER BY audit_date_UTC DESC, process_code`,
         [orgId],
       );
 
@@ -162,10 +162,10 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
       }
 
       const [auditRows] = await db.query<RowDataPacket[]>(
-        `SELECT a.id, a.org_id, a.name, a.status, a.audit_date, o.name AS client_name
+        `SELECT a.id, a.org_id, a.name, a.status, a.audit_date_UTC, o.name AS client_name
        FROM audits a
-       JOIN organizations o ON o.id = a.org_id AND o.archived_at IS NULL
-       WHERE a.id = ? AND a.archived_at IS NULL
+       JOIN organizations o ON o.id = a.org_id AND o.archived_UTC IS NULL
+       WHERE a.id = ? AND a.archived_UTC IS NULL
        LIMIT 1`,
         [auditId],
       );
@@ -182,9 +182,9 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
        FROM audit_detail_responses adr
        JOIN audit_detail_fields adf ON adf.id = adr.field_id
        WHERE adf.field_key = 'lead_auditor_name'
-         AND adf.archived_at IS NULL
+         AND adf.archived_UTC IS NULL
          AND adr.audit_id = ?
-         AND adr.archived_at IS NULL
+         AND adr.archived_UTC IS NULL
        LIMIT 1`,
         [auditId],
       );
@@ -192,8 +192,8 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
       const [scopeCounts] = await db.query<RowDataPacket[]>(
         `SELECT so.code, COUNT(*) AS cnt
        FROM audit_scope_targets ast
-       JOIN scope_options so ON so.id = ast.scope_option_id AND so.archived_at IS NULL
-       WHERE ast.audit_id = ? AND ast.archived_at IS NULL
+       JOIN scope_options so ON so.id = ast.scope_option_id AND so.archived_UTC IS NULL
+       WHERE ast.audit_id = ? AND ast.archived_UTC IS NULL
        GROUP BY so.code`,
         [auditId],
       );
@@ -219,22 +219,22 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
          aa.comment_text,
          aa.evidence_text
        FROM requirements r
-       JOIN processes p ON p.id = r.process_id AND p.archived_at IS NULL
+       JOIN processes p ON p.id = r.process_id AND p.archived_UTC IS NULL
        LEFT JOIN audit_scope_targets ast
          ON ast.process_id = p.id
          AND ast.audit_id = ?
-         AND ast.archived_at IS NULL
+         AND ast.archived_UTC IS NULL
        LEFT JOIN scope_options so
          ON so.id = ast.scope_option_id
-         AND so.archived_at IS NULL
+         AND so.archived_UTC IS NULL
        LEFT JOIN audit_assessments aa
          ON aa.audit_id = ?
          AND aa.requirement_id = r.id
-         AND aa.archived_at IS NULL
+         AND aa.archived_UTC IS NULL
        LEFT JOIN capability_scores cs
          ON cs.id = aa.capability_score_id
-         AND cs.archived_at IS NULL
-       WHERE r.archived_at IS NULL
+         AND cs.archived_UTC IS NULL
+       WHERE r.archived_UTC IS NULL
        ORDER BY p.sort_order ASC, r.sort_order ASC`,
         [auditId, auditId],
       );
@@ -271,7 +271,7 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
           id: Number(audit.id),
           name: String(audit.name),
           status: String(audit.status),
-          auditDate: String(audit.audit_date),
+          auditDate: String(audit.audit_date_UTC),
           clientName: String(audit.client_name),
           generatedAtIso,
           leadAuditorName: String(leadAuditorRows[0]?.response_text ?? ""),
@@ -299,10 +299,10 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
         exportId = await withTransaction(async (conn) => {
           await conn.execute(
             `UPDATE audit_pdf_exports
-           SET is_current = 0, updated_at = UTC_TIMESTAMP(3)
+           SET is_current = 0, updated_UTC = UTC_TIMESTAMP(3)
            WHERE audit_id = ?
              AND report_kind = 'FULL_ASSESSMENT_REPORT'
-             AND archived_at IS NULL
+             AND archived_UTC IS NULL
              AND is_current = 1`,
             [auditId],
           );
@@ -357,7 +357,7 @@ export const registerExportRoutes = (app: AppBase): AppBase =>
       const [rows] = await db.query<RowDataPacket[]>(
         `SELECT file_name, file_path
        FROM audit_pdf_exports
-       WHERE id = ? AND audit_id = ? AND archived_at IS NULL
+       WHERE id = ? AND audit_id = ? AND archived_UTC IS NULL
        LIMIT 1`,
         [exportId, auditId],
       );

@@ -66,5 +66,5 @@ else
   printf '  scripts/start.sh\n'
   printf '  scripts/migrate.sh\n'
   printf '  scripts/bootstrap-admin.sh <email> [display-name] [org-name]\n'
-  printf '  scripts/import-fitsm.sh [org-id] [user-id] [audit-name]\n'
+  printf '  scripts/import-fitsm.sh [--file PATH] [org-id] [user-id] [audit-name]\n'
 fi
