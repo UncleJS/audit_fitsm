@@ -247,7 +247,10 @@ const main = async () => {
   const conclusionRes = await fetch(`${apiBase}/audits/${auditId}/conclusion`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ conclusionText: "integration-test conclusion" }),
+    // Non-Latin-1 text, emoji and an unbreakable long word exercise the PDF sanitizer and line wrapping.
+    body: JSON.stringify({
+      conclusionText: `integration-test conclusion — naïve café, 日本語, emoji ✅ ${"x".repeat(400)}\n${"line ".repeat(2000)}`,
+    }),
   });
   await expectOk(conclusionRes, "conclusion update");
 
@@ -324,6 +327,10 @@ const main = async () => {
     headers: authHeaders(adminToken),
   });
   await expectOk(downloadRes, "pdf download");
+  const pdfBytes = new Uint8Array(await downloadRes.arrayBuffer());
+  if (new TextDecoder().decode(pdfBytes.slice(0, 5)) !== "%PDF-") {
+    fail("pdf download is not a PDF document");
+  }
 
   // RBAC org admin APIs + lock behavior for auditor
   const rolesRes = await fetch(`${apiBase}/roles`, { headers: authHeaders(adminToken) });
@@ -524,6 +531,7 @@ const main = async () => {
           "csv neutralization",
           "csv exports",
           "pdf exports",
+          "pdf unicode text",
           "rbac admin",
           "client-scoped users",
           "completed audit lock",
