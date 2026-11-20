@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "./cn";
 
@@ -13,12 +16,12 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "border border-sky-400/70 bg-sky-500 text-slate-950 shadow-[0_0_0_1px_rgba(125,211,252,0.2)] hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-300",
+    "btn-primary border border-primary/70 bg-primary text-primary-contrast shadow-[0_0_0_1px_var(--shadow)] hover:bg-primary-hover hover:text-primary-contrast disabled:bg-surface-3 disabled:text-fg-secondary",
   secondary:
-    "border border-slate-700 bg-slate-900/80 text-slate-100 hover:border-slate-500 hover:bg-slate-800 disabled:text-slate-500",
+    "border border-border-strong bg-surface-2/80 text-fg hover:border-border-strong hover:bg-surface-3 disabled:text-muted",
   ghost:
-    "border border-transparent bg-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900/80 disabled:text-slate-500",
-  danger: "border border-rose-400/60 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 disabled:text-rose-300/50",
+    "border border-transparent bg-transparent text-fg-secondary hover:border-border-strong hover:bg-surface-2/80 disabled:text-muted",
+  danger: "border border-danger/60 bg-danger/15 text-danger-fg hover:bg-danger/25 disabled:text-danger-fg/50",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -30,10 +33,10 @@ export function Button({ className, variant = "primary", size = "md", active, ch
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/80 disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60",
         sizeClasses[size],
         variantClasses[variant],
-        active && "border-sky-300 bg-sky-400/20 text-sky-100",
+        active && "border-primary bg-primary/20 text-accent",
         className,
       )}
       {...props}

@@ -1,8 +1,14 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import type { AppBase } from "../app-base";
-import type { RowDataPacket } from "../support";
+import type { Queryable, RowDataPacket } from "../support";
 import {
   affectedRowsOf,
   allowedStatusTransitions,
+  assessmentNoteSchema,
+  assessmentsSchema,
+  auditConclusionSchema,
+  auditDetailsSchema,
   canAccessAudit,
   createAuditSchema,
   db,
@@ -10,10 +16,90 @@ import {
   hasOrgRole,
   hasTable,
   insertIdOf,
+  isDuplicateKeyError,
   recordAuditEvent,
+  scopeTargetsSchema,
   unauthorized,
   updateStatusSchema,
+  withTransaction,
 } from "../support";
+
+const invalidPayload = (label: string, error: { flatten: () => unknown }) => ({
+  error: `Invalid ${label} payload`,
+  details: error.flatten(),
+});
+
+const insertAssessmentEvent = async (
+  conn: Queryable,
+  assessmentId: number,
+  eventType: string,
+  oldValue: unknown,
+  newValue: unknown,
+  actorUserId: number,
+): Promise<void> => {
+  await conn.execute(
+    `INSERT INTO assessment_events
+     (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
+   VALUES (?, ?, ?, ?, ?)`,
+    [
+      assessmentId,
+      eventType,
+      oldValue === null ? null : JSON.stringify(oldValue),
+      newValue === null ? null : JSON.stringify(newValue),
+      actorUserId,
+    ],
+  );
+};
+
+const AUDIT_LOCKED_MESSAGE = "Audit is completed and locked for non-lead roles";
+
+// Raised inside a write transaction when the locked audit row no longer permits the write.
+class AuditWriteRejected extends Error {
+  constructor(
+    readonly httpStatus: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+// Locks the audit row for the rest of the transaction, so status transitions (which lock the same row)
+// serialize with in-flight writes. Re-validates the lock state the early canAccessAudit check saw.
+const lockAuditForWrite = async (
+  conn: Queryable,
+  auditId: number,
+  options: { canWriteCompleted: boolean; requiredStatus?: string; requiredStatusMessage?: string },
+): Promise<string> => {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    "SELECT status FROM audits WHERE id = ? AND archived_at IS NULL FOR UPDATE",
+    [auditId],
+  );
+  if (!rows.length) throw new AuditWriteRejected(404, "Audit not found");
+  const status = String(rows[0].status);
+  if (status === "completed" && !options.canWriteCompleted) {
+    throw new AuditWriteRejected(409, AUDIT_LOCKED_MESSAGE);
+  }
+  if (options.requiredStatus && status !== options.requiredStatus) {
+    throw new AuditWriteRejected(409, options.requiredStatusMessage ?? "Audit status changed; reload and try again");
+  }
+  return status;
+};
+
+// Runs a write transaction and maps AuditWriteRejected to its HTTP status and { error } body.
+const runAuditWrite = async <T>(
+  set: { status?: number | string },
+  fn: Parameters<typeof withTransaction<T>>[0],
+): Promise<{ ok: true; value: T } | { ok: false; body: { error: string } }> => {
+  try {
+    return { ok: true, value: await withTransaction(fn) };
+  } catch (error) {
+    if (error instanceof AuditWriteRejected) {
+      set.status = error.httpStatus;
+      return { ok: false, body: { error: error.message } };
+    }
+    throw error;
+  }
+};
 
 export const registerAuditRoutes = (app: AppBase): AppBase =>
   app
@@ -56,41 +142,52 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       }
       const payload = parsed.data;
 
-      const [result] = await db.execute(
-        `INSERT INTO audits (org_id, name, audit_date, status, created_by)
-       VALUES (?, ?, ?, 'draft', ?)`,
-        [orgId, payload.name, payload.auditDate, auth.sub],
-      );
+      let auditId: number;
+      try {
+        auditId = await withTransaction(async (conn) => {
+          const [result] = await conn.execute(
+            `INSERT INTO audits (org_id, name, audit_date, status, created_by)
+           VALUES (?, ?, ?, 'draft', ?)`,
+            [orgId, payload.name, payload.auditDate, auth.sub],
+          );
+          const newAuditId = insertIdOf(result);
 
-      const auditId = insertIdOf(result);
+          const [scopeRows] = await conn.query<RowDataPacket[]>(
+            "SELECT id FROM scope_options WHERE code = 'IN_SCOPE' AND archived_at IS NULL LIMIT 1",
+          );
+          const inScopeId = scopeRows.length ? Number(scopeRows[0].id) : null;
 
-      const [scopeRows] = await db.query<RowDataPacket[]>(
-        "SELECT id FROM scope_options WHERE code = 'IN_SCOPE' AND archived_at IS NULL LIMIT 1",
-      );
-      const inScopeId = scopeRows.length ? Number(scopeRows[0].id) : null;
+          if (inScopeId) {
+            await conn.execute(
+              `INSERT INTO audit_scope_targets (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
+              SELECT ?, p.id, ?, NULL, ?, ?
+              FROM processes p
+              WHERE p.archived_at IS NULL`,
+              [newAuditId, payload.certGoalLevel, inScopeId, auth.sub],
+            );
+          }
 
-      if (inScopeId) {
-        await db.execute(
-          `INSERT INTO audit_scope_targets (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
-          SELECT ?, p.id, ?, NULL, ?, ?
-          FROM processes p
-          WHERE p.archived_at IS NULL`,
-          [auditId, payload.certGoalLevel, inScopeId, auth.sub],
-        );
+          const [selectScoreRows] = await conn.query<RowDataPacket[]>(
+            "SELECT id FROM capability_scores WHERE label = 'Select …' AND archived_at IS NULL LIMIT 1",
+          );
+          const selectScoreId = selectScoreRows.length ? Number(selectScoreRows[0].id) : null;
+
+          await conn.execute(
+            `INSERT INTO audit_assessments (audit_id, requirement_id, capability_score_id, updated_by)
+           SELECT ?, r.id, ?, ?
+           FROM requirements r
+           WHERE r.archived_at IS NULL`,
+            [newAuditId, selectScoreId, auth.sub],
+          );
+          return newAuditId;
+        });
+      } catch (error) {
+        if (isDuplicateKeyError(error)) {
+          set.status = 409;
+          return { error: "An audit with this name already exists for this client" };
+        }
+        throw error;
       }
-
-      const [selectScoreRows] = await db.query<RowDataPacket[]>(
-        "SELECT id FROM capability_scores WHERE label = 'Select …' AND archived_at IS NULL LIMIT 1",
-      );
-      const selectScoreId = selectScoreRows.length ? Number(selectScoreRows[0].id) : null;
-
-      await db.execute(
-        `INSERT INTO audit_assessments (audit_id, requirement_id, capability_score_id, updated_by)
-       SELECT ?, r.id, ?, ?
-       FROM requirements r
-       WHERE r.archived_at IS NULL`,
-        [auditId, selectScoreId, auth.sub],
-      );
 
       set.status = 201;
       return { id: auditId };
@@ -131,39 +228,56 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
 
       const completedAt = payload.status === "completed" ? "UTC_TIMESTAMP(3)" : "NULL";
 
-      await db.execute(
-        `UPDATE audits
-       SET status = ?, completed_at = ${completedAt}, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
-       WHERE id = ? AND archived_at IS NULL`,
-        [payload.status, auth.sub, auditId],
-      );
+      // Compare-and-set on the status we validated against: a concurrent transition makes this a no-op (409).
+      const changed = await withTransaction(async (conn) => {
+        const [lockedRows] = await conn.query<RowDataPacket[]>(
+          "SELECT status FROM audits WHERE id = ? AND archived_at IS NULL FOR UPDATE",
+          [auditId],
+        );
+        if (!lockedRows.length || String(lockedRows[0].status) !== String(access.status)) return false;
 
-      await recordAuditEvent(
-        auditId,
-        "status_changed",
-        auth.sub,
-        { status: access.status },
-        { status: payload.status },
-        "status",
-      );
+        const [updateResult] = await conn.execute(
+          `UPDATE audits
+         SET status = ?, completed_at = ${completedAt}, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
+         WHERE id = ? AND archived_at IS NULL AND status = ?`,
+          [payload.status, auth.sub, auditId, String(access.status)],
+        );
+        if (affectedRowsOf(updateResult) === 0) return false;
+
+        await recordAuditEvent(
+          auditId,
+          "status_changed",
+          auth.sub,
+          { status: access.status },
+          { status: payload.status },
+          "status",
+          null,
+          conn,
+        );
+        return true;
+      });
+
+      if (!changed) {
+        set.status = 409;
+        return { error: "Audit status was changed concurrently; reload and try again" };
+      }
 
       return { id: auditId, status: payload.status };
     })
     .put("/audits/:auditId/scope-targets", async ({ auth, params, body, set }) => {
       const auditId = Number(params.auditId);
-      const payload = body as {
-        items?: Array<{
-          processCode: string;
-          certGoalLevel: number;
-          customGoalLevel?: number | null;
-          scopeCode: "IN_SCOPE" | "OUT_OF_SCOPE";
-        }>;
-      };
 
       if (!auth) {
         set.status = 401;
         return unauthorized;
       }
+
+      const parsed = scopeTargetsSchema.safeParse(body);
+      if (!parsed.success) {
+        set.status = 400;
+        return invalidPayload("scope targets", parsed.error);
+      }
+      const payload = parsed.data;
 
       const access = await canAccessAudit(auth, auditId, "lead_auditor", {
         requireUnlockedForWrite: true,
@@ -180,10 +294,6 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         set.status = 409;
         return { error: "Scope and cert goals are editable only while audit is draft" };
       }
-      if (!payload.items?.length) {
-        set.status = 400;
-        return { error: "items are required" };
-      }
 
       const [processRows] = await db.query<RowDataPacket[]>("SELECT id, code FROM processes WHERE archived_at IS NULL");
       const processIdByCode = new Map<string, number>();
@@ -195,42 +305,50 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       const scopeIdByCode = new Map<string, number>();
       for (const row of scopeRows) scopeIdByCode.set(String(row.code), Number(row.id));
 
-      for (const item of payload.items) {
-        const processId = processIdByCode.get(item.processCode);
-        const scopeOptionId = scopeIdByCode.get(item.scopeCode);
-        if (!processId || !scopeOptionId) continue;
+      const canWriteCompleted = hasOrgRole(auth, access.orgId, "lead_auditor");
+      const scopeWrite = await runAuditWrite(set, async (conn) => {
+        await lockAuditForWrite(conn, auditId, {
+          canWriteCompleted,
+          requiredStatus: "draft",
+          requiredStatusMessage: "Scope and cert goals are editable only while audit is draft",
+        });
+        for (const item of payload.items) {
+          const processId = processIdByCode.get(item.processCode);
+          const scopeOptionId = scopeIdByCode.get(item.scopeCode);
+          if (!processId || !scopeOptionId) continue;
 
-        await db.execute(
-          `INSERT INTO audit_scope_targets
-           (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           cert_goal_level = VALUES(cert_goal_level),
-           custom_goal_level = VALUES(custom_goal_level),
-           scope_option_id = VALUES(scope_option_id),
-           updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
-          [auditId, processId, Number(item.certGoalLevel), item.customGoalLevel ?? null, scopeOptionId, auth.sub],
-        );
-      }
+          await conn.execute(
+            `INSERT INTO audit_scope_targets
+             (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             cert_goal_level = VALUES(cert_goal_level),
+             custom_goal_level = VALUES(custom_goal_level),
+             scope_option_id = VALUES(scope_option_id),
+             updated_by = VALUES(updated_by),
+             updated_at = UTC_TIMESTAMP(3)`,
+            [auditId, processId, item.certGoalLevel, item.customGoalLevel ?? null, scopeOptionId, auth.sub],
+          );
+        }
+      });
+      if (!scopeWrite.ok) return scopeWrite.body;
 
       return { updated: payload.items.length };
     })
     .put("/audits/:auditId/assessments", async ({ auth, params, body, set }) => {
       const auditId = Number(params.auditId);
-      const payload = body as {
-        items?: Array<{
-          requirementCode: string;
-          scoreLabel: string;
-          commentText?: string | null;
-          evidenceText?: string | null;
-        }>;
-      };
 
       if (!auth) {
         set.status = 401;
         return unauthorized;
       }
+
+      const parsed = assessmentsSchema.safeParse(body);
+      if (!parsed.success) {
+        set.status = 400;
+        return invalidPayload("assessments", parsed.error);
+      }
+      const payload = parsed.data;
 
       const access = await canAccessAudit(auth, auditId, "auditor", {
         requireUnlockedForWrite: true,
@@ -243,10 +361,6 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         set.status = 403;
         return access.reason ? { error: access.reason } : forbidden;
       }
-      if (!payload.items?.length) {
-        set.status = 400;
-        return { error: "items are required" };
-      }
 
       const [reqRows] = await db.query<RowDataPacket[]>("SELECT id, code FROM requirements WHERE archived_at IS NULL");
       const requirementIdByCode = new Map<string, number>();
@@ -258,113 +372,123 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       const scoreIdByLabel = new Map<string, number>();
       for (const row of scoreRows) scoreIdByLabel.set(String(row.label), Number(row.id));
 
-      let written = 0;
-
-      for (const item of payload.items) {
-        const requirementId = requirementIdByCode.get(item.requirementCode);
-        const scoreId = scoreIdByLabel.get(item.scoreLabel) ?? scoreIdByLabel.get("Select …") ?? null;
-        if (!requirementId) continue;
-
-        const [existingRows] = await db.query<RowDataPacket[]>(
+      // The active-row lookup goes through the generated columns behind uq_audit_assessments_active, so the
+      // FOR UPDATE lock covers exactly the one active row (or its gap). Concurrent saves of the same row
+      // serialize; a lost insert race surfaces as ER_DUP_ENTRY and is retried as an update.
+      const lockActiveRow = async (conn: Queryable, requirementId: number) => {
+        const [rows] = await conn.query<RowDataPacket[]>(
           `SELECT id, capability_score_id, comment_text, evidence_text
-         FROM audit_assessments
-         WHERE audit_id = ? AND requirement_id = ? AND archived_at IS NULL
-         LIMIT 1`,
+           FROM audit_assessments
+           WHERE active_audit_id = ? AND active_requirement_id = ?
+           LIMIT 1
+           FOR UPDATE`,
           [auditId, requirementId],
         );
+        return rows[0] ?? null;
+      };
 
-        if (!existingRows.length) {
-          const [insertResult] = await db.execute(
-            `INSERT INTO audit_assessments
-             (audit_id, requirement_id, capability_score_id, comment_text, evidence_text, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-            [auditId, requirementId, scoreId, item.commentText ?? null, item.evidenceText ?? null, auth.sub],
-          );
+      const canWriteCompleted = hasOrgRole(auth, access.orgId, "lead_auditor");
+      const written = await runAuditWrite(set, async (conn) => {
+        await lockAuditForWrite(conn, auditId, {
+          canWriteCompleted,
+        });
+        let count = 0;
+        for (const item of payload.items) {
+          const requirementId = requirementIdByCode.get(item.requirementCode);
+          const scoreId = scoreIdByLabel.get(item.scoreLabel) ?? scoreIdByLabel.get("Select …") ?? null;
+          if (!requirementId) continue;
 
-          const assessmentId = insertIdOf(insertResult);
-          await db.execute(
-            `INSERT INTO assessment_events
-             (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-           VALUES (?, 'assessment_created', NULL, ?, ?)`,
-            [
-              assessmentId,
-              JSON.stringify({
-                capabilityScoreId: scoreId,
-                commentText: item.commentText ?? null,
-                evidenceText: item.evidenceText ?? null,
-              }),
-              auth.sub,
-            ],
-          );
-        } else {
-          const existing = existingRows[0];
-          await db.execute(
+          const commentText = item.commentText ?? null;
+          const evidenceText = item.evidenceText ?? null;
+          let existing = await lockActiveRow(conn, requirementId);
+
+          if (!existing) {
+            try {
+              const [insertResult] = await conn.execute(
+                `INSERT INTO audit_assessments
+                 (audit_id, requirement_id, capability_score_id, comment_text, evidence_text, updated_by)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+                [auditId, requirementId, scoreId, commentText, evidenceText, auth.sub],
+              );
+              await insertAssessmentEvent(
+                conn,
+                insertIdOf(insertResult),
+                "assessment_created",
+                null,
+                { capabilityScoreId: scoreId, commentText, evidenceText },
+                auth.sub,
+              );
+              count += 1;
+              continue;
+            } catch (error) {
+              if (!isDuplicateKeyError(error)) throw error;
+              existing = await lockActiveRow(conn, requirementId);
+              if (!existing) throw error;
+            }
+          }
+
+          const existingId = Number(existing.id);
+          await conn.execute(
             `UPDATE audit_assessments
-           SET capability_score_id = ?, comment_text = ?, evidence_text = ?, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
-           WHERE id = ?`,
-            [scoreId, item.commentText ?? null, item.evidenceText ?? null, auth.sub, existing.id],
+             SET capability_score_id = ?, comment_text = ?, evidence_text = ?, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
+             WHERE id = ?`,
+            [scoreId, commentText, evidenceText, auth.sub, existingId],
           );
 
           if (Number(existing.capability_score_id ?? -1) !== Number(scoreId ?? -1)) {
-            await db.execute(
-              `INSERT INTO assessment_events
-               (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-             VALUES (?, 'score_changed', ?, ?, ?)`,
-              [
-                existing.id,
-                JSON.stringify({ capabilityScoreId: existing.capability_score_id ?? null }),
-                JSON.stringify({ capabilityScoreId: scoreId }),
-                auth.sub,
-              ],
+            await insertAssessmentEvent(
+              conn,
+              existingId,
+              "score_changed",
+              { capabilityScoreId: existing.capability_score_id ?? null },
+              { capabilityScoreId: scoreId },
+              auth.sub,
             );
           }
 
-          if (String(existing.comment_text ?? "") !== String(item.commentText ?? "")) {
-            await db.execute(
-              `INSERT INTO assessment_events
-               (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-             VALUES (?, 'comment_changed', ?, ?, ?)`,
-              [
-                existing.id,
-                JSON.stringify({ commentText: existing.comment_text ?? null }),
-                JSON.stringify({ commentText: item.commentText ?? null }),
-                auth.sub,
-              ],
+          if (String(existing.comment_text ?? "") !== String(commentText ?? "")) {
+            await insertAssessmentEvent(
+              conn,
+              existingId,
+              "comment_changed",
+              { commentText: existing.comment_text ?? null },
+              { commentText },
+              auth.sub,
             );
           }
 
-          if (String(existing.evidence_text ?? "") !== String(item.evidenceText ?? "")) {
-            await db.execute(
-              `INSERT INTO assessment_events
-               (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-             VALUES (?, 'evidence_changed', ?, ?, ?)`,
-              [
-                existing.id,
-                JSON.stringify({ evidenceText: existing.evidence_text ?? null }),
-                JSON.stringify({ evidenceText: item.evidenceText ?? null }),
-                auth.sub,
-              ],
+          if (String(existing.evidence_text ?? "") !== String(evidenceText ?? "")) {
+            await insertAssessmentEvent(
+              conn,
+              existingId,
+              "evidence_changed",
+              { evidenceText: existing.evidence_text ?? null },
+              { evidenceText },
+              auth.sub,
             );
           }
+
+          count += 1;
         }
+        return count;
+      });
+      if (!written.ok) return written.body;
 
-        written += 1;
-      }
-
-      return { updated: written };
+      return { updated: written.value };
     })
     .post("/assessments/:assessmentId/notes", async ({ auth, params, body, set }) => {
       const assessmentId = Number(params.assessmentId);
-      const payload = body as { noteText?: string };
 
       if (!auth) {
         set.status = 401;
         return unauthorized;
       }
-      if (!payload.noteText?.trim()) {
+      const parsed = assessmentNoteSchema.safeParse(body);
+      if (!parsed.success) {
         set.status = 400;
-        return { error: "noteText is required" };
+        return invalidPayload("note", parsed.error);
       }
+      const noteText = parsed.data.noteText.trim();
 
       const [assessmentRows] = await db.query<RowDataPacket[]>(
         `SELECT aa.id, a.id AS audit_id, a.org_id, a.status AS audit_status
@@ -388,39 +512,39 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
 
       if (String(assessmentRows[0].audit_status) === "completed" && !hasOrgRole(auth, orgId, "lead_auditor")) {
         set.status = 403;
-        return { error: "Audit is completed and locked for non-lead roles" };
+        return { error: AUDIT_LOCKED_MESSAGE };
       }
 
-      const [insertResult] = await db.execute(
-        `INSERT INTO assessment_notes (audit_assessment_id, note_text, created_by)
-       VALUES (?, ?, ?)`,
-        [assessmentId, payload.noteText.trim(), auth.sub],
-      );
-
-      await db.execute(
-        `INSERT INTO assessment_events
-         (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-       VALUES (?, 'note_added', NULL, ?, ?)`,
-        [assessmentId, JSON.stringify({ noteText: payload.noteText.trim() }), auth.sub],
-      );
+      const noteWrite = await runAuditWrite(set, async (conn) => {
+        await lockAuditForWrite(conn, Number(assessmentRows[0].audit_id), {
+          canWriteCompleted: hasOrgRole(auth, orgId, "lead_auditor"),
+        });
+        const [insertResult] = await conn.execute(
+          `INSERT INTO assessment_notes (audit_assessment_id, note_text, created_by)
+         VALUES (?, ?, ?)`,
+          [assessmentId, noteText, auth.sub],
+        );
+        await insertAssessmentEvent(conn, assessmentId, "note_added", null, { noteText }, auth.sub);
+        return insertIdOf(insertResult);
+      });
+      if (!noteWrite.ok) return noteWrite.body;
 
       set.status = 201;
-      return { id: insertIdOf(insertResult) };
+      return { id: noteWrite.value };
     })
     .put("/audits/:auditId/details", async ({ auth, params, body, set }) => {
       const auditId = Number(params.auditId);
-      const payload = body as {
-        items?: Array<{
-          fieldKey: string;
-          responseText?: string | null;
-          noteText?: string | null;
-        }>;
-      };
 
       if (!auth) {
         set.status = 401;
         return unauthorized;
       }
+      const parsed = auditDetailsSchema.safeParse(body);
+      if (!parsed.success) {
+        set.status = 400;
+        return invalidPayload("details", parsed.error);
+      }
+      const payload = parsed.data;
 
       const access = await canAccessAudit(auth, auditId, "auditor", {
         requireUnlockedForWrite: true,
@@ -433,74 +557,83 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         set.status = 403;
         return access.reason ? { error: access.reason } : forbidden;
       }
-      if (!payload.items?.length) {
-        set.status = 400;
-        return { error: "items are required" };
-      }
-
       const [fields] = await db.query<RowDataPacket[]>(
         "SELECT id, field_key FROM audit_detail_fields WHERE archived_at IS NULL",
       );
       const fieldIdByKey = new Map<string, number>();
       for (const row of fields) fieldIdByKey.set(String(row.field_key), Number(row.id));
 
-      for (const item of payload.items) {
-        const fieldId = fieldIdByKey.get(item.fieldKey);
-        if (!fieldId) continue;
+      const canWriteCompleted = hasOrgRole(auth, access.orgId, "lead_auditor");
+      const detailsWrite = await runAuditWrite(set, async (conn) => {
+        await lockAuditForWrite(conn, auditId, {
+          canWriteCompleted,
+        });
+        for (const item of payload.items) {
+          const fieldId = fieldIdByKey.get(item.fieldKey);
+          if (!fieldId) continue;
 
-        const [existingRows] = await db.query<RowDataPacket[]>(
-          `SELECT id, response_text, note_text
-         FROM audit_detail_responses
-         WHERE audit_id = ? AND field_id = ? AND archived_at IS NULL
-         LIMIT 1`,
-          [auditId, fieldId],
-        );
-
-        const previousValue = existingRows.length
-          ? {
-              responseText: existingRows[0].response_text ?? null,
-              noteText: existingRows[0].note_text ?? null,
-            }
-          : null;
-        const nextValue = {
-          responseText: item.responseText ?? null,
-          noteText: item.noteText ?? null,
-        };
-
-        await db.execute(
-          `INSERT INTO audit_detail_responses (audit_id, field_id, response_text, note_text, updated_by)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           response_text = VALUES(response_text),
-           note_text = VALUES(note_text),
-           updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
-          [auditId, fieldId, item.responseText ?? null, item.noteText ?? null, auth.sub],
-        );
-
-        if (JSON.stringify(previousValue) !== JSON.stringify(nextValue)) {
-          await recordAuditEvent(
-            auditId,
-            "detail_response_changed",
-            auth.sub,
-            previousValue,
-            nextValue,
-            "detail",
-            item.fieldKey,
+          const [existingRows] = await conn.query<RowDataPacket[]>(
+            `SELECT id, response_text, note_text
+           FROM audit_detail_responses
+           WHERE audit_id = ? AND field_id = ? AND archived_at IS NULL
+           LIMIT 1
+           FOR UPDATE`,
+            [auditId, fieldId],
           );
+
+          const previousValue = existingRows.length
+            ? {
+                responseText: existingRows[0].response_text ?? null,
+                noteText: existingRows[0].note_text ?? null,
+              }
+            : null;
+          const nextValue = {
+            responseText: item.responseText ?? null,
+            noteText: item.noteText ?? null,
+          };
+
+          await conn.execute(
+            `INSERT INTO audit_detail_responses (audit_id, field_id, response_text, note_text, updated_by)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             response_text = VALUES(response_text),
+             note_text = VALUES(note_text),
+             updated_by = VALUES(updated_by),
+             updated_at = UTC_TIMESTAMP(3)`,
+            [auditId, fieldId, nextValue.responseText, nextValue.noteText, auth.sub],
+          );
+
+          if (JSON.stringify(previousValue) !== JSON.stringify(nextValue)) {
+            await recordAuditEvent(
+              auditId,
+              "detail_response_changed",
+              auth.sub,
+              previousValue,
+              nextValue,
+              "detail",
+              item.fieldKey,
+              conn,
+            );
+          }
         }
-      }
+      });
+      if (!detailsWrite.ok) return detailsWrite.body;
 
       return { updated: payload.items.length };
     })
     .put("/audits/:auditId/conclusion", async ({ auth, params, body, set }) => {
       const auditId = Number(params.auditId);
-      const payload = body as { conclusionText?: string | null };
 
       if (!auth) {
         set.status = 401;
         return unauthorized;
       }
+      const parsed = auditConclusionSchema.safeParse(body ?? {});
+      if (!parsed.success) {
+        set.status = 400;
+        return invalidPayload("conclusion", parsed.error);
+      }
+      const payload = parsed.data;
 
       const access = await canAccessAudit(auth, auditId, "lead_auditor", {
         requireUnlockedForWrite: true,
@@ -514,36 +647,46 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return access.reason ? { error: access.reason } : forbidden;
       }
 
-      const [existingRows] = await db.query<RowDataPacket[]>(
-        `SELECT id, conclusion_text
-       FROM audit_conclusions
-       WHERE audit_id = ? AND archived_at IS NULL
-       LIMIT 1`,
-        [auditId],
-      );
-
-      await db.execute(
-        `INSERT INTO audit_conclusions (audit_id, conclusion_text, updated_by)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         conclusion_text = VALUES(conclusion_text),
-         updated_by = VALUES(updated_by),
-         updated_at = UTC_TIMESTAMP(3)`,
-        [auditId, payload.conclusionText ?? null, auth.sub],
-      );
-
-      const previousConclusion = existingRows.length ? (existingRows[0].conclusion_text ?? null) : null;
-      const nextConclusion = payload.conclusionText ?? null;
-      if (String(previousConclusion ?? "") !== String(nextConclusion ?? "")) {
-        await recordAuditEvent(
-          auditId,
-          "conclusion_changed",
-          auth.sub,
-          { conclusionText: previousConclusion },
-          { conclusionText: nextConclusion },
-          "conclusion",
+      const canWriteCompleted = hasOrgRole(auth, access.orgId, "lead_auditor");
+      const conclusionWrite = await runAuditWrite(set, async (conn) => {
+        await lockAuditForWrite(conn, auditId, {
+          canWriteCompleted,
+        });
+        const [existingRows] = await conn.query<RowDataPacket[]>(
+          `SELECT id, conclusion_text
+         FROM audit_conclusions
+         WHERE audit_id = ? AND archived_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+          [auditId],
         );
-      }
+
+        const nextConclusion = payload.conclusionText ?? null;
+        await conn.execute(
+          `INSERT INTO audit_conclusions (audit_id, conclusion_text, updated_by)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           conclusion_text = VALUES(conclusion_text),
+           updated_by = VALUES(updated_by),
+           updated_at = UTC_TIMESTAMP(3)`,
+          [auditId, nextConclusion, auth.sub],
+        );
+
+        const previousConclusion = existingRows.length ? (existingRows[0].conclusion_text ?? null) : null;
+        if (String(previousConclusion ?? "") !== String(nextConclusion ?? "")) {
+          await recordAuditEvent(
+            auditId,
+            "conclusion_changed",
+            auth.sub,
+            { conclusionText: previousConclusion },
+            { conclusionText: nextConclusion },
+            "conclusion",
+            null,
+            conn,
+          );
+        }
+      });
+      if (!conclusionWrite.ok) return conclusionWrite.body;
 
       return { updated: 1 };
     })
@@ -906,34 +1049,33 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return { error: "Assessment is already archived" };
       }
 
-      const [archiveResult] = await db.execute(
-        `UPDATE audit_assessments
-       SET archived_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3), updated_by = ?
-       WHERE id = ? AND archived_at IS NULL`,
-        [auth.sub, assessmentId],
-      );
+      const archived = await withTransaction(async (conn) => {
+        const [archiveResult] = await conn.execute(
+          `UPDATE audit_assessments
+         SET archived_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3), updated_by = ?
+         WHERE id = ? AND archived_at IS NULL`,
+          [auth.sub, assessmentId],
+        );
+        if (affectedRowsOf(archiveResult) === 0) return false;
 
-      if (affectedRowsOf(archiveResult) === 0) {
+        await insertAssessmentEvent(conn, assessmentId, "assessment_archived", null, null, auth.sub);
+        await recordAuditEvent(
+          Number(rows[0].audit_id),
+          "assessment_archived",
+          auth.sub,
+          { assessmentId, archived: false },
+          { assessmentId, archived: true },
+          "assessment",
+          String(assessmentId),
+          conn,
+        );
+        return true;
+      });
+
+      if (!archived) {
         set.status = 409;
         return { error: "Assessment could not be archived" };
       }
-
-      await db.execute(
-        `INSERT INTO assessment_events
-         (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-       VALUES (?, 'assessment_archived', NULL, NULL, ?)`,
-        [assessmentId, auth.sub],
-      );
-
-      await recordAuditEvent(
-        Number(rows[0].audit_id),
-        "assessment_archived",
-        auth.sub,
-        { assessmentId, archived: false },
-        { assessmentId, archived: true },
-        "assessment",
-        String(assessmentId),
-      );
 
       return { archived: true };
     })
@@ -969,34 +1111,43 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return { error: "Assessment is already active" };
       }
 
-      const [restoreResult] = await db.execute(
-        `UPDATE audit_assessments
-       SET archived_at = NULL, updated_at = UTC_TIMESTAMP(3), updated_by = ?
-       WHERE id = ? AND archived_at IS NOT NULL`,
-        [auth.sub, assessmentId],
-      );
+      let restored: boolean;
+      try {
+        restored = await withTransaction(async (conn) => {
+          const [restoreResult] = await conn.execute(
+            `UPDATE audit_assessments
+           SET archived_at = NULL, updated_at = UTC_TIMESTAMP(3), updated_by = ?
+           WHERE id = ? AND archived_at IS NOT NULL`,
+            [auth.sub, assessmentId],
+          );
+          if (affectedRowsOf(restoreResult) === 0) return false;
 
-      if (affectedRowsOf(restoreResult) === 0) {
+          await insertAssessmentEvent(conn, assessmentId, "assessment_restored", null, null, auth.sub);
+          await recordAuditEvent(
+            Number(rows[0].audit_id),
+            "assessment_restored",
+            auth.sub,
+            { assessmentId, archived: true },
+            { assessmentId, archived: false },
+            "assessment",
+            String(assessmentId),
+            conn,
+          );
+          return true;
+        });
+      } catch (error) {
+        if (isDuplicateKeyError(error)) {
+          // Another active assessment already exists for the same requirement in this audit.
+          set.status = 409;
+          return { error: "An active assessment already exists for this requirement" };
+        }
+        throw error;
+      }
+
+      if (!restored) {
         set.status = 409;
         return { error: "Assessment could not be restored" };
       }
-
-      await db.execute(
-        `INSERT INTO assessment_events
-         (audit_assessment_id, event_type, old_value_json, new_value_json, actor_user_id)
-       VALUES (?, 'assessment_restored', NULL, NULL, ?)`,
-        [assessmentId, auth.sub],
-      );
-
-      await recordAuditEvent(
-        Number(rows[0].audit_id),
-        "assessment_restored",
-        auth.sub,
-        { assessmentId, archived: true },
-        { assessmentId, archived: false },
-        "assessment",
-        String(assessmentId),
-      );
 
       return { restored: true };
     })

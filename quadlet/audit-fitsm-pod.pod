@@ -1,0 +1,16 @@
+[Unit]
+Description=Audit FitSM Pod
+After=network-online.target
+Wants=network-online.target
+
+[Pod]
+PodName=audit-fitsm
+Label=io.audit-fitsm.project=audit-fitsm
+# Only the app ports are published. MariaDB (3306) stays inside the pod.
+# phpMyAdmin (1263) is opt-in: install.sh --with-phpmyadmin adds the
+# audit-fitsm-pod.pod.d/phpmyadmin.conf drop-in.
+PublishPort=127.0.0.1:1260:1260
+PublishPort=127.0.0.1:1261:1261
+
+[Install]
+WantedBy=default.target

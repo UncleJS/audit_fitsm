@@ -1,16 +1,49 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 const apiBase = process.env.API_BASE_URL ?? "http://localhost:1261";
 const adminEmail = process.env.TEST_ADMIN_EMAIL ?? "admin@example.com";
 const adminPassword = process.env.TEST_ADMIN_PASSWORD ?? "ChangeMe123!";
 
-const jsonHeaders = (token?: string) => ({
+const SESSION_COOKIE = "audit_fitsm_session";
+
+// Every mutating request needs the CSRF header; the session travels only as the HttpOnly cookie, which this
+// script forwards by hand (a minimal cookie jar holding one session per actor).
+const jsonHeaders = (session?: string) => ({
   "Content-Type": "application/json",
-  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  "x-audit-fitsm": "1",
+  ...(session ? { cookie: session } : {}),
 });
 
-const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
+const authHeaders = (session: string) => ({ cookie: session });
 
 const fail = (message: string): never => {
   throw new Error(message);
+};
+
+/** Returns the `name=value` pair of the session cookie from a response, or "" when none (or a cleared one) was set. */
+const sessionFrom = (res: Response): string => {
+  const pair = (res.headers.get("set-cookie") ?? "").split(";")[0]?.trim() ?? "";
+  return pair.startsWith(`${SESSION_COOKIE}=`) && pair.length > SESSION_COOKIE.length + 1 ? pair : "";
+};
+
+const login = async (email: string, password: string, label: string): Promise<string> => {
+  const res = await fetch(`${apiBase}/auth/login`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) fail(`${label} failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as Record<string, unknown>;
+  if ("accessToken" in body || "token" in body) fail(`${label} leaked a token in the response body`);
+  const session = sessionFrom(res);
+  if (!session) fail(`${label} did not set a session cookie`);
+  return session;
+};
+
+const expectStatus = async (res: Response, expected: number, label: string) => {
+  if (res.status !== expected) {
+    fail(`${label}: expected ${expected}, got ${res.status} ${await res.text()}`);
+  }
 };
 
 const expectOk = async (res: Response, label: string) => {
@@ -43,15 +76,39 @@ const main = async () => {
   }
 
   // admin login
-  const loginRes = await fetch(`${apiBase}/auth/login`, {
+  const csrfRes = await fetch(`${apiBase}/auth/login`, {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: adminEmail, password: adminPassword }),
   });
-  await expectOk(loginRes, "admin login");
-  const loginBody = await loginRes.json();
-  const adminToken = String(loginBody.accessToken ?? "");
-  if (!adminToken) fail("admin login returned no token");
+  await expectStatus(csrfRes, 403, "login without CSRF header");
+
+  const malformedLoginRes = await fetch(`${apiBase}/auth/login`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: "{not json",
+  });
+  await expectStatus(malformedLoginRes, 400, "login with malformed JSON");
+
+  let adminToken = await login(adminEmail, adminPassword, "admin login");
+
+  const meRes = await fetch(`${apiBase}/me`, { headers: authHeaders(adminToken) });
+  await expectOk(meRes, "me");
+  const me = (await meRes.json()) as { sub?: number; sessionExpiresAt?: string | null };
+  const adminUserId = Number(me.sub);
+  if (!adminUserId) fail("/me returned no sub");
+  if (!me.sessionExpiresAt || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(me.sessionExpiresAt)) {
+    fail(`/me sessionExpiresAt is not ISO UTC: ${me.sessionExpiresAt}`);
+  }
+
+  const refreshRes = await fetch(`${apiBase}/auth/refresh`, { method: "POST", headers: jsonHeaders(adminToken) });
+  await expectOk(refreshRes, "session refresh");
+  const refreshBody = (await refreshRes.json()) as { ok?: boolean; expiresInSec?: number };
+  if (!refreshBody.ok || !(Number(refreshBody.expiresInSec) > 0)) fail("refresh returned no expiresInSec");
+  adminToken = sessionFrom(refreshRes) || fail("refresh did not set a new session cookie");
+
+  const anonRefreshRes = await fetch(`${apiBase}/auth/refresh`, { method: "POST", headers: jsonHeaders() });
+  await expectStatus(anonRefreshRes, 401, "refresh without session");
 
   // create client
   const createClientRes = await fetch(`${apiBase}/clients`, {
@@ -129,6 +186,43 @@ const main = async () => {
   });
   await expectOk(assessRes, "assessment update");
 
+  const malformedAssessRes = await fetch(`${apiBase}/audits/${auditId}/assessments`, {
+    method: "PUT",
+    headers: jsonHeaders(adminToken),
+    body: JSON.stringify({ items: "not-a-list" }),
+  });
+  await expectStatus(malformedAssessRes, 400, "malformed assessments payload");
+
+  const oversizedNoteRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/notes`, {
+    method: "POST",
+    headers: jsonHeaders(adminToken),
+    body: JSON.stringify({ noteText: "x".repeat(20_001) }),
+  });
+  await expectStatus(oversizedNoteRes, 400, "oversized note");
+
+  const concurrentBody = JSON.stringify({
+    items: [
+      {
+        requirementCode: firstReq.requirementCode,
+        scoreLabel: "2",
+        commentText: "=SUM(1,1)",
+        evidenceText: "@integration-proof",
+      },
+    ],
+  });
+  const concurrent = await Promise.all(
+    [0, 1].map(() =>
+      fetch(`${apiBase}/audits/${auditId}/assessments`, {
+        method: "PUT",
+        headers: jsonHeaders(adminToken),
+        body: concurrentBody,
+      }),
+    ),
+  );
+  for (const [index, res] of concurrent.entries()) {
+    await expectOk(res, `concurrent assessment upsert #${index + 1}`);
+  }
+
   // note + history
   const noteRes = await fetch(`${apiBase}/assessments/${firstReq.assessmentId}/notes`, {
     method: "POST",
@@ -153,7 +247,10 @@ const main = async () => {
   const conclusionRes = await fetch(`${apiBase}/audits/${auditId}/conclusion`, {
     method: "PUT",
     headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ conclusionText: "integration-test conclusion" }),
+    // Non-Latin-1 text, emoji and an unbreakable long word exercise the PDF sanitizer and line wrapping.
+    body: JSON.stringify({
+      conclusionText: `integration-test conclusion — naïve café, 日本語, emoji ✅ ${"x".repeat(400)}\n${"line ".repeat(2000)}`,
+    }),
   });
   await expectOk(conclusionRes, "conclusion update");
 
@@ -230,6 +327,10 @@ const main = async () => {
     headers: authHeaders(adminToken),
   });
   await expectOk(downloadRes, "pdf download");
+  const pdfBytes = new Uint8Array(await downloadRes.arrayBuffer());
+  if (new TextDecoder().decode(pdfBytes.slice(0, 5)) !== "%PDF-") {
+    fail("pdf download is not a PDF document");
+  }
 
   // RBAC org admin APIs + lock behavior for auditor
   const rolesRes = await fetch(`${apiBase}/roles`, { headers: authHeaders(adminToken) });
@@ -284,20 +385,22 @@ const main = async () => {
   await expectOk(orgUsersRes, "org users list");
 
   // set audit to completed and verify auditor cannot write
-  const completeRes = await fetch(`${apiBase}/audits/${auditId}/status`, {
-    method: "PUT",
-    headers: jsonHeaders(adminToken),
-    body: JSON.stringify({ status: "completed" }),
-  });
-  await expectOk(completeRes, "complete audit for lock test");
+  // Two racing transitions from the same status: exactly one may win, the other gets 409.
+  const completeRace = await Promise.all(
+    [0, 1].map(() =>
+      fetch(`${apiBase}/audits/${auditId}/status`, {
+        method: "PUT",
+        headers: jsonHeaders(adminToken),
+        body: JSON.stringify({ status: "completed" }),
+      }),
+    ),
+  );
+  const raceStatuses = completeRace.map((res) => res.status).sort();
+  if (raceStatuses[0] !== 200 || raceStatuses[1] !== 409) {
+    fail(`expected one 200 and one 409 for racing status updates, got ${raceStatuses.join(",")}`);
+  }
 
-  const auditorLoginRes = await fetch(`${apiBase}/auth/login`, {
-    method: "POST",
-    headers: jsonHeaders(),
-    body: JSON.stringify({ email: auditorEmail, password: "ChangeMe123!" }),
-  });
-  await expectOk(auditorLoginRes, "auditor login");
-  const auditorToken = String((await auditorLoginRes.json()).accessToken ?? "");
+  const auditorToken = await login(auditorEmail, "ChangeMe123!", "auditor login");
 
   const auditorWriteRes = await fetch(`${apiBase}/audits/${auditId}/assessments`, {
     method: "PUT",
@@ -357,13 +460,7 @@ const main = async () => {
   });
   await expectOk(restoreRes, "restore assessment");
 
-  const auditorAgainRes = await fetch(`${apiBase}/auth/login`, {
-    method: "POST",
-    headers: jsonHeaders(),
-    body: JSON.stringify({ email: auditorEmail, password: "ChangeMe123!" }),
-  });
-  await expectOk(auditorAgainRes, "auditor login after revocation");
-  const auditorAfterRevoke = String((await auditorAgainRes.json()).accessToken ?? "");
+  const auditorAfterRevoke = await login(auditorEmail, "ChangeMe123!", "auditor login after revocation");
 
   const crossOrgRes = await fetch(`${apiBase}/orgs/${secondOrgId}/audits`, {
     headers: authHeaders(auditorAfterRevoke),
@@ -371,6 +468,47 @@ const main = async () => {
   if (crossOrgRes.status !== 403) {
     fail(`expected 403 for cross-org audit list, got ${crossOrgRes.status}`);
   }
+
+  // An org_admin must not be able to take over or strip a system_admin account.
+  const orgAdminEmail = `it.orgadmin.${stamp}@example.com`;
+  const createOrgAdminRes = await fetch(`${apiBase}/orgs/${orgId}/users`, {
+    method: "POST",
+    headers: jsonHeaders(adminToken),
+    body: JSON.stringify({
+      email: orgAdminEmail,
+      password: "ChangeMe123!",
+      displayName: "Integration Org Admin",
+      roles: ["org_admin"],
+    }),
+  });
+  await expectOk(createOrgAdminRes, "create org admin");
+  const orgAdminToken = await login(orgAdminEmail, "ChangeMe123!", "org admin login");
+
+  const hijackRes = await fetch(`${apiBase}/orgs/${orgId}/users`, {
+    method: "POST",
+    headers: jsonHeaders(orgAdminToken),
+    body: JSON.stringify({
+      email: adminEmail,
+      password: "Hijacked-Password-1",
+      displayName: "Hijacked",
+      roles: ["viewer"],
+    }),
+  });
+  await expectStatus(hijackRes, 409, "org admin re-creating the system admin");
+  adminToken = await login(adminEmail, adminPassword, "admin login after hijack attempt");
+
+  const stripAdminRes = await fetch(`${apiBase}/orgs/${orgId}/users/${adminUserId}/roles`, {
+    method: "PUT",
+    headers: jsonHeaders(orgAdminToken),
+    body: JSON.stringify({ roles: [] }),
+  });
+  await expectStatus(stripAdminRes, 403, "org admin stripping system admin roles");
+
+  // Logout revokes the session server-side: the old cookie must stop working even if a copy was kept.
+  const logoutRes = await fetch(`${apiBase}/auth/logout`, { method: "POST", headers: jsonHeaders(orgAdminToken) });
+  await expectOk(logoutRes, "org admin logout");
+  const afterLogoutRes = await fetch(`${apiBase}/me`, { headers: authHeaders(orgAdminToken) });
+  await expectStatus(afterLogoutRes, 401, "reusing a logged-out session");
 
   console.log(
     JSON.stringify(
@@ -393,6 +531,7 @@ const main = async () => {
           "csv neutralization",
           "csv exports",
           "pdf exports",
+          "pdf unicode text",
           "rbac admin",
           "client-scoped users",
           "completed audit lock",
@@ -404,6 +543,13 @@ const main = async () => {
           "trends",
           "archive/restore",
           "cross-org denial",
+          "csrf header",
+          "malformed payloads",
+          "session refresh",
+          "concurrent upserts",
+          "status race",
+          "system admin protection",
+          "logout revocation",
         ],
       },
       null,

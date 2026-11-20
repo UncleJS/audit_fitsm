@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+
 import { FilePlus2 } from "lucide-react";
 import type { FormEvent } from "react";
 import DateOnlyInput from "../../components/date-only-input";
@@ -35,7 +38,7 @@ export default function NewAuditSheet({
     >
       <form onSubmit={form.onSubmit} className="grid gap-4">
         <div className="grid gap-2">
-          <label htmlFor="new-audit-name" className="text-sm font-medium text-slate-300">
+          <label htmlFor="new-audit-name" className="text-sm font-medium text-fg-secondary">
             Audit name
           </label>
           <input
@@ -47,7 +50,7 @@ export default function NewAuditSheet({
           />
         </div>
         <div className="grid gap-2">
-          <label htmlFor="new-audit-goal" className="text-sm font-medium text-slate-300">
+          <label htmlFor="new-audit-goal" className="text-sm font-medium text-fg-secondary">
             Certification goal
           </label>
           <select
@@ -63,7 +66,7 @@ export default function NewAuditSheet({
           </select>
         </div>
         <div className="grid gap-2">
-          <label htmlFor="new-audit-date" className="text-sm font-medium text-slate-300">
+          <label htmlFor="new-audit-date" className="text-sm font-medium text-fg-secondary">
             Audit date
           </label>
           <DateOnlyInput

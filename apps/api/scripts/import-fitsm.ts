@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import { readFile } from "node:fs/promises";
 import { XMLParser } from "fast-xml-parser";
 import JSZip from "jszip";
@@ -207,7 +209,9 @@ const main = async () => {
     user: config.db.user,
     password: config.db.password,
     database: config.db.database,
+    timezone: "Z",
   });
+  await connection.query("SET time_zone = '+00:00'");
 
   await connection.beginTransaction();
 

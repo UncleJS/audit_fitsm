@@ -1,6 +1,6 @@
 .env
 .env.*
-.env.example
+!.env.example
 
 # Credentials / secrets / local config
 **/credentials.json
@@ -16,6 +16,8 @@ config/*.local.*
 
 node_modules/
 .next/
+.next-dev/
+*.tsbuildinfo
 dist/
 coverage/
 .DS_Store

@@ -12,28 +12,76 @@
   ],
   "components": {
     "securitySchemes": {
-      "bearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT"
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "audit_fitsm_session",
+        "description": "HttpOnly, SameSite=Strict session cookie set by POST /auth/login (Secure in production/staging). Bearer tokens are not accepted."
       }
     },
     "schemas": {
       "Audit": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer" },
-          "org_id": { "type": "integer" },
-          "name": { "type": "string" },
-          "status": { "type": "string" },
-          "audit_date": { "type": "string", "format": "date" }
+          "id": {
+            "type": "integer"
+          },
+          "org_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "audit_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "details": {}
+        }
+      },
+      "SessionOk": {
+        "type": "object",
+        "required": ["ok", "expiresInSec"],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "expiresInSec": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "parameters": {
+      "CsrfHeader": {
+        "name": "x-audit-fitsm",
+        "in": "header",
+        "required": true,
+        "description": "CSRF guard. Required (value `1`) on every POST, PUT, PATCH and DELETE, including login and logout; requests without it get 403.",
+        "schema": {
+          "type": "string",
+          "enum": ["1"]
         }
       }
     }
   },
   "security": [
     {
-      "bearerAuth": []
+      "sessionCookie": []
     }
   ],
   "paths": {
@@ -73,8 +121,16 @@
                 "type": "object",
                 "required": ["email", "password"],
                 "properties": {
-                  "email": { "type": "string", "format": "email" },
-                  "password": { "type": "string" }
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 255
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
                 }
               }
             }
@@ -82,13 +138,70 @@
         },
         "responses": {
           "200": {
-            "description": "JWT access token"
+            "description": "Logged in. The session is only in the Set-Cookie header; the body carries no token.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "audit_fitsm_session=<jwt>; HttpOnly; SameSite=Strict; Path=/; Max-Age=<ttl>",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOk"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           },
           "401": {
-            "description": "Invalid credentials"
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing CSRF header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts (per IP: 30 per 15 min; per email: 10 per 15 min)",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
-        "security": []
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ]
       }
     },
     "/me": {
@@ -96,7 +209,46 @@
         "summary": "Current user profile and org roles",
         "responses": {
           "200": {
-            "description": "Authenticated profile"
+            "description": "Authenticated profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sub": {
+                      "type": "integer"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "orgRoles": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "tokenVersion": {
+                      "type": "integer"
+                    },
+                    "authVia": {
+                      "type": "string",
+                      "enum": ["cookie"]
+                    },
+                    "sessionExpiresAt": {
+                      "type": ["string", "null"],
+                      "format": "date-time",
+                      "description": "Session expiry in UTC, ISO 8601 with Z (e.g. 2026-11-08T14:05:09Z)"
+                    }
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized"
@@ -123,7 +275,9 @@
                 "type": "object",
                 "required": ["name"],
                 "properties": {
-                  "name": { "type": "string" }
+                  "name": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -132,8 +286,19 @@
         "responses": {
           "201": {
             "description": "Created"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ]
       }
     },
     "/roles": {
@@ -154,7 +319,9 @@
             "name": "orgId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -170,12 +337,33 @@
             "name": "orgId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "201": {
             "description": "Created"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
+          },
+          "409": {
+            "description": "Email belongs to a system administrator or a user of another client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -188,18 +376,38 @@
             "name": "orgId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           },
           {
             "name": "userId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "200": {
             "description": "Updated"
+          },
+          "403": {
+            "description": "Not an org admin, system_admin requested, target is a system administrator, or missing CSRF header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -212,7 +420,9 @@
             "name": "orgId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -222,7 +432,9 @@
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/Audit" }
+                  "items": {
+                    "$ref": "#/components/schemas/Audit"
+                  }
                 }
               }
             }
@@ -236,7 +448,12 @@
             "name": "orgId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "requestBody": {
@@ -247,8 +464,13 @@
                 "type": "object",
                 "required": ["name", "auditDate"],
                 "properties": {
-                  "name": { "type": "string" },
-                  "auditDate": { "type": "string", "format": "date" }
+                  "name": {
+                    "type": "string"
+                  },
+                  "auditDate": {
+                    "type": "string",
+                    "format": "date"
+                  }
                 }
               }
             }
@@ -257,6 +479,22 @@
         "responses": {
           "201": {
             "description": "Created"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
+          },
+          "409": {
+            "description": "An audit with this name already exists for this client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -269,7 +507,12 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "requestBody": {
@@ -294,7 +537,20 @@
             "description": "Updated"
           },
           "409": {
-            "description": "Invalid transition"
+            "description": "Invalid transition, or the status changed concurrently",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -307,11 +563,15 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Rows from v_all_results" }
+          "200": {
+            "description": "Rows from v_all_results"
+          }
         }
       }
     },
@@ -323,12 +583,23 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "200": {
             "description": "Update summary"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -341,12 +612,23 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "200": {
             "description": "Update summary"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -359,12 +641,23 @@
             "name": "assessmentId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "201": {
             "description": "Created"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -377,7 +670,9 @@
             "name": "assessmentId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -395,11 +690,24 @@
             "name": "assessmentId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
-          "200": { "description": "Archived" }
+          "200": {
+            "description": "Archived"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
+          }
         }
       }
     },
@@ -411,11 +719,34 @@
             "name": "assessmentId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
-          "200": { "description": "Restored" }
+          "200": {
+            "description": "Restored"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
+          },
+          "409": {
+            "description": "An active assessment already exists for this requirement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -427,7 +758,9 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -443,12 +776,23 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "200": {
             "description": "Update summary"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -461,7 +805,9 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -477,12 +823,23 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "200": {
             "description": "Update summary"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -495,7 +852,9 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -513,7 +872,9 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -531,13 +892,18 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           },
           {
             "name": "report",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["all", "certification", "gaps"] }
+            "schema": {
+              "type": "string",
+              "enum": ["all", "certification", "gaps"]
+            }
           }
         ],
         "responses": {
@@ -555,13 +921,18 @@
             "name": "orgId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           },
           {
             "name": "report",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["trends"] }
+            "schema": {
+              "type": "string",
+              "enum": ["trends"]
+            }
           }
         ],
         "responses": {
@@ -579,12 +950,23 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
           }
         ],
         "responses": {
           "201": {
             "description": "Created export metadata"
+          },
+          "403": {
+            "description": "Forbidden, or missing CSRF header"
+          },
+          "400": {
+            "description": "Invalid or malformed payload"
           }
         }
       }
@@ -597,13 +979,17 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           },
           {
             "name": "exportId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -621,11 +1007,15 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Rows from v_certification_results" }
+          "200": {
+            "description": "Rows from v_certification_results"
+          }
         }
       }
     },
@@ -637,11 +1027,15 @@
             "name": "auditId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Rows from v_gap_analysis" }
+          "200": {
+            "description": "Rows from v_gap_analysis"
+          }
         }
       }
     },
@@ -653,11 +1047,109 @@
             "name": "orgId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
-          "200": { "description": "Rows from v_trends" }
+          "200": {
+            "description": "Rows from v_trends"
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "summary": "Re-issue the session cookie with a fresh expiry",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session renewed",
+            "headers": {
+              "Set-Cookie": {
+                "description": "audit_fitsm_session=<jwt>; HttpOnly; SameSite=Strict; Path=/; Max-Age=<ttl>",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOk"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session (cookie cleared)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing CSRF header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Log out and revoke every session of the user",
+        "description": "Bumps the user's token version, so all outstanding session cookies stop working, then clears the cookie. Succeeds without a session too.",
+        "security": [
+          {},
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CsrfHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logged out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing CSRF header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     }

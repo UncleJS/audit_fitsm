@@ -1,10 +1,8 @@
 # ODS Operational Mapping
 
-![License: CC BY 4.0](https://img.shields.io/badge/License-CC_BY_4.0-lightgrey.svg)
-![Source: ODS](https://img.shields.io/badge/source-ODS-0A7E07)
-![Target: MariaDB](https://img.shields.io/badge/target-MariaDB-003545)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](../LICENSE) [![CI](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UncleJS/audit_fitsm/actions/workflows/ci.yml) [![Source: FitSM workbook](https://img.shields.io/badge/source-FitSM_ODS-0A7E07)](https://www.fitsm.eu/) [![MariaDB 12.3 LTS](https://img.shields.io/badge/MariaDB-12.3_LTS-003545?logo=mariadb)](https://mariadb.org)
 
-Workbook: `FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods`
+How the FitSM workbook `FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods` maps to the database. Import it with `scripts/import-fitsm.sh`; the schema lives in `db/migrations/`.
 
 ## Table of Contents
 
@@ -12,7 +10,6 @@ Workbook: `FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods`
 - [Dropdown FK mapping](#dropdown-fk-mapping)
 - [History](#history)
 - [Reporting parity](#reporting-parity)
-- [License footer](#license-footer)
 
 ## Included sheets
 
@@ -22,7 +19,7 @@ Workbook: `FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods`
 - `7. Conclusions` -> `audit_conclusions`
 - `Sources` -> `capability_scores` + `scope_options` (seeded by migration)
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Dropdown FK mapping
 
@@ -30,29 +27,28 @@ Workbook: `FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods`
 - Scope (`In scope`, `Out of scope`) -> `scope_options.id`
 - Certification/custom target (`1..4`) -> `target_levels.level`
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## History
 
-- Every assessment change can be emitted to `assessment_events`.
+- Every assessment change can be written to `assessment_events`.
 - User notes are stored in `assessment_notes`.
 - Evidence references are stored in `assessment_evidence`.
+- Timestamps are stored in UTC; the columns still use `*_at` names (the `*_UTC` rename is deferred, see [ui-date-formatting.md](ui-date-formatting.md)).
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
 ## Reporting parity
 
-Views in `0012_views.sql` mirror workbook logic:
+Views in `db/migrations/0012_views.sql` mirror the workbook logic:
 
 - `v_all_results`
 - `v_certification_results`
 - `v_gap_analysis`
 - `v_trends`
 
-[Go to TOC](#table-of-contents)
+[↑ Back to TOC](#table-of-contents)
 
-## License footer
+---
 
-© Audit FitSM contributors. Licensed under [CC BY 4.0](../LICENSE.md).
-
-[Go to TOC](#table-of-contents)
+© 2026 UncleJS — Licensed under [AGPL-3.0-or-later](https://www.gnu.org/licenses/agpl-3.0.txt)

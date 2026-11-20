@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
+
 import { UserPlus } from "lucide-react";
 import type { FormEvent } from "react";
 import { decodeHtmlEntities } from "../../lib/text-format";
@@ -50,7 +53,6 @@ export default function UsersTab({
     setRoleEditsByUserId: (update: (prev: Record<string, string[]>) => Record<string, string[]>) => void;
     saveUserRoles: (userId: number) => void;
     archiveUserInClient: (userId: number) => void;
-    tokenMissing: boolean;
   };
 }) {
   return (
@@ -59,10 +61,10 @@ export default function UsersTab({
         <Card>
           <CardContent className="space-y-4 p-5">
             <div>
-              <p className="text-sm font-semibold text-slate-50">Selected client</p>
-              <p className="mt-1 text-sm text-slate-400">Choose the client whose users and roles you want to manage.</p>
+              <p className="text-sm font-semibold text-fg">Selected client</p>
+              <p className="mt-1 text-sm text-muted">Choose the client whose users and roles you want to manage.</p>
             </div>
-            <label htmlFor="admin-client" className="text-sm font-medium text-slate-300">
+            <label htmlFor="admin-client" className="text-sm font-medium text-fg-secondary">
               Client
             </label>
             <select
@@ -100,12 +102,12 @@ export default function UsersTab({
         <Card>
           <CardContent className="space-y-4 p-5">
             <div className="flex items-center gap-3">
-              <span className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sky-200">
+              <span className="rounded-2xl border border-border bg-surface-2/80 p-3 text-accent">
                 <UserPlus className="size-4" />
               </span>
               <div>
-                <p className="text-sm font-semibold text-slate-50">Create user in client</p>
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="text-sm font-semibold text-fg">Create user in client</p>
+                <p className="mt-1 text-sm text-muted">
                   Archive-only behavior is preserved: clearing all roles archives the user in that client.
                 </p>
               </div>
@@ -146,11 +148,11 @@ export default function UsersTab({
                 {createUserForm.rolesCatalog.map((role) => (
                   <label
                     key={`new-role-${role.code}`}
-                    className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm text-slate-200"
+                    className="flex items-center gap-2 rounded-xl border border-border bg-surface/45 px-3 py-2 text-sm text-fg"
                   >
                     <input
                       type="checkbox"
-                      className="size-4 w-4 accent-sky-400"
+                      className="size-4 w-4 accent-primary"
                       checked={createUserForm.selectedRoles.includes(role.code)}
                       onChange={() =>
                         createUserForm.setSelectedRoles((prev) => createUserForm.toggleRoleSelection(prev, role.code))
@@ -172,14 +174,14 @@ export default function UsersTab({
 
       <div className="space-y-2">
         {userTable.orgUsers.length > 0 ? (
-          <p className="text-xs uppercase tracking-[0.16em] text-slate-500 lg:hidden">
+          <p className="text-xs uppercase tracking-[0.16em] text-muted lg:hidden">
             Swipe horizontally to review role assignments and actions
           </p>
         ) : null}
         <Card>
           <CardContent className="p-0">
             {userTable.orgUsers.length === 0 ? (
-              <div className="p-6 text-sm text-slate-400">
+              <div className="p-6 text-sm text-muted">
                 No users found for this client, or you do not have org admin access.
               </div>
             ) : (
@@ -203,9 +205,9 @@ export default function UsersTab({
                       return (
                         <tr key={`org-user-${user.id}`}>
                           <td>
-                            <div className="font-medium text-slate-50">{decodeHtmlEntities(user.display_name)}</div>
+                            <div className="font-medium text-fg">{decodeHtmlEntities(user.display_name)}</div>
                           </td>
-                          <td className="text-slate-300">{decodeHtmlEntities(user.email)}</td>
+                          <td className="text-fg-secondary">{decodeHtmlEntities(user.email)}</td>
                           <td>{user.is_active ? "Yes" : "No"}</td>
                           <td>
                             <Badge variant={user.has_active_org_roles ? "success" : "warning"}>
@@ -217,11 +219,11 @@ export default function UsersTab({
                               {createUserForm.rolesCatalog.map((role) => (
                                 <label
                                   key={`user-${user.id}-${role.code}`}
-                                  className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2 text-xs text-slate-200"
+                                  className="flex items-center gap-2 rounded-xl border border-border bg-surface/45 px-3 py-2 text-xs text-fg"
                                 >
                                   <input
                                     type="checkbox"
-                                    className="size-4 w-4 accent-sky-400"
+                                    className="size-4 w-4 accent-primary"
                                     checked={editRoles.includes(role.code)}
                                     onChange={() =>
                                       userTable.setRoleEditsByUserId((prev) => ({
@@ -241,7 +243,7 @@ export default function UsersTab({
                                 size="sm"
                                 variant="secondary"
                                 onClick={() => userTable.saveUserRoles(user.id)}
-                                disabled={saving || userTable.tokenMissing}
+                                disabled={saving}
                               >
                                 {saving ? "Saving…" : "Save roles"}
                               </Button>
@@ -249,7 +251,7 @@ export default function UsersTab({
                                 size="sm"
                                 variant="danger"
                                 onClick={() => userTable.archiveUserInClient(user.id)}
-                                disabled={saving || userTable.tokenMissing || !user.has_active_org_roles}
+                                disabled={saving || !user.has_active_org_roles}
                               >
                                 Archive in client
                               </Button>

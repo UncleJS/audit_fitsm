@@ -1,31 +1,50 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 UncleJS
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import JSZip from "jszip";
+import { createBackup, mariadbClientEnv, readDbConnectionEnv } from "./backup-db";
 
-const required = (name: string, fallback?: string): string => {
-  const value = process.env[name] ?? fallback;
-  if (!value) {
-    throw new Error(`Missing required env var: ${name}`);
+const usage = "Usage: bun scripts/restore-db.ts <zip-file-path> --yes [--force] [--skip-pre-backup]";
+
+/**
+ * Works out which database a dump was taken from: backup-meta.json (written by backup-db.ts) first, then the
+ * "-- Host: ...    Database: <name>" header that mariadb-dump writes. Any USE statement must match as well.
+ */
+export const dumpTargetDatabases = (sqlText: string, metaDbName: string | null): Set<string> => {
+  const names = new Set<string>();
+  if (metaDbName) names.add(metaDbName);
+
+  const header = sqlText.slice(0, 4096).match(/^--\s*Host:.*?Database:\s*(\S+)/m);
+  if (header?.[1]) names.add(header[1]);
+
+  for (const match of sqlText.matchAll(/^\s*USE\s+`?([^`;\s]+)`?\s*;/gim)) {
+    if (match[1]) names.add(match[1]);
   }
-  return value;
+  for (const match of sqlText.matchAll(
+    /^\s*CREATE\s+DATABASE\s+(?:\/\*.*?\*\/\s*)?(?:IF\s+NOT\s+EXISTS\s+)?`?([^`;\s]+)`?/gim,
+  )) {
+    if (match[1]) names.add(match[1]);
+  }
+  return names;
 };
 
 const main = async () => {
-  const inputZip = process.argv[2];
-  if (!inputZip) {
-    throw new Error("Usage: bun scripts/restore-db.ts <zip-file-path> [--yes]");
+  const args = process.argv.slice(2);
+  const inputZip = args.find((arg) => !arg.startsWith("--"));
+  if (!inputZip || args.includes("-h") || args.includes("--help")) {
+    console.log(usage);
+    if (!inputZip) process.exit(1);
+    return;
   }
 
-  const confirm = process.argv.includes("--yes");
-  if (!confirm) {
+  if (!args.includes("--yes")) {
     throw new Error("Restore is destructive. Re-run with --yes to confirm.");
   }
+  const force = args.includes("--force");
+  const skipPreBackup = args.includes("--skip-pre-backup");
 
-  const dbHost = required("DB_HOST", "127.0.0.1");
-  const dbPort = required("DB_PORT", "1262");
-  const dbUser = required("DB_USER", "audit_app");
-  const dbPassword = required("DB_PASSWORD", "change_me");
-  const dbName = required("DB_NAME", "audit_fitsm");
+  const { dbHost, dbPort, dbUser, dbPassword, dbName } = readDbConnectionEnv();
 
   const zipBuffer = await readFile(resolve(inputZip));
   const zip = await JSZip.loadAsync(zipBuffer);
@@ -40,7 +59,35 @@ const main = async () => {
     throw new Error("Could not read SQL content from zip");
   }
 
-  const restore = Bun.spawnSync(["mariadb", "-h", dbHost, "-P", dbPort, "-u", dbUser, `-p${dbPassword}`, dbName], {
+  let metaDbName: string | null = null;
+  const metaText = await zip.file("backup-meta.json")?.async("string");
+  if (metaText) {
+    try {
+      const meta = JSON.parse(metaText) as { dbName?: unknown };
+      metaDbName = typeof meta.dbName === "string" && meta.dbName ? meta.dbName : null;
+    } catch {
+      metaDbName = null;
+    }
+  }
+
+  const targets = dumpTargetDatabases(sqlText, metaDbName);
+  const mismatched = [...targets].filter((name) => name !== dbName);
+  if (!force && (targets.size === 0 || mismatched.length > 0)) {
+    throw new Error(
+      targets.size === 0
+        ? `Cannot tell which database this dump belongs to; refusing to restore into '${dbName}'. Use --force to override.`
+        : `Dump targets database(s) ${[...targets].join(", ")}, but the configured database is '${dbName}'. Use --force to override.`,
+    );
+  }
+
+  // Safety net: snapshot the current database first so a wrong restore can be undone.
+  const preRestoreBackup = skipPreBackup ? null : await createBackup({ label: "pre-restore" });
+  if (preRestoreBackup) {
+    console.log(`pre-restore backup written to ${preRestoreBackup.zipFile}`);
+  }
+
+  const restore = Bun.spawnSync(["mariadb", "-h", dbHost, "-P", dbPort, "-u", dbUser, dbName], {
+    env: mariadbClientEnv(dbPassword),
     stdin: new TextEncoder().encode(sqlText),
     stdout: "pipe",
     stderr: "pipe",
@@ -57,6 +104,7 @@ const main = async () => {
         ok: true,
         restoredFromZip: resolve(inputZip),
         sqlEntry,
+        preRestoreBackup: preRestoreBackup?.zipFile ?? null,
       },
       null,
       2,
@@ -64,4 +112,6 @@ const main = async () => {
   );
 };
 
-await main();
+if (import.meta.main) {
+  await main();
+}

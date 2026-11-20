@@ -1,0 +1,32 @@
+[Unit]
+Description=Audit FitSM MariaDB
+After=network-online.target audit-fitsm-pod-pod.service
+Wants=network-online.target
+Requires=audit-fitsm-pod-pod.service
+
+[Container]
+ContainerName=audit-fitsm-db
+Pod=audit-fitsm-pod.pod
+Image=docker.io/library/mariadb:12.3
+Label=io.audit-fitsm.project=audit-fitsm
+Environment=TZ=UTC
+Environment=MARIADB_AUTO_UPGRADE=1
+Environment=MARIADB_DATABASE=audit_fitsm
+Environment=MARIADB_USER=audit_app
+Secret=audit-fitsm-db-password,type=env,target=MARIADB_PASSWORD
+Secret=audit-fitsm-db-root-password,type=env,target=MARIADB_ROOT_PASSWORD
+Volume=audit-fitsm-db.volume:/var/lib/mysql:Z
+Exec=--default-time-zone=+00:00
+HealthCmd=healthcheck.sh --connect --innodb_initialized
+HealthInterval=10s
+HealthTimeout=5s
+HealthRetries=6
+HealthStartPeriod=30s
+HealthStartupInterval=2s
+Notify=healthy
+
+[Service]
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target
