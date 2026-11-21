@@ -67,8 +67,10 @@ A small script ran in a throwaway `docker.io/oven/bun:1.2.22` container (files s
 
 ## Known gaps
 
+None. Earlier gaps are resolved:
+
 - Database date/time columns use the `*_UTC` suffix (migration `0016_utc_column_names.sql`).
-- `apps/api/src/config.ts` still reads a legacy `ALLOW_INSECURE_DEFAULTS` flag; nothing in the repo sets it.
+- The legacy `ALLOW_INSECURE_DEFAULTS` flag has been removed from `apps/api/src/config.ts`.
 
 [↑ Back to TOC](#table-of-contents)
 

@@ -35,7 +35,7 @@ This runbook covers the static job and the strict Podman job. Primary files:
 
 ## Pipeline
 
-The workflow runs on pull requests and on pushes to `main` or `master`. It has `permissions: contents: read`, and every action is pinned to a commit SHA.
+The workflow runs on pull requests and on pushes to `main`, `master` or `development`. It has `permissions: contents: read`, and every action is pinned to a commit SHA.
 
 ```mermaid
 flowchart LR
