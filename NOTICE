@@ -1,0 +1,25 @@
+Audit FitSM
+Copyright (C) 2026 UncleJS
+
+The program code in this repository is licensed under the GNU Affero General Public
+License v3.0 or later (AGPL-3.0-or-later); see LICENSE.
+
+Third-party content
+-------------------
+
+db/migrations/0017_fitsm6_catalog_seed.sql contains the FitSM-6 process names,
+requirement texts and capability-level guidance, reproduced verbatim and unmodified from:
+
+  "FitSM-6: Capability / Maturity Assessment Scheme", Assessment and Audit Tool,
+  Version 3.0.3, published by the FitSM working group / FitSM e.V.
+  https://www.fitsm.eu/
+
+That content is licensed under the Creative Commons Attribution-NoDerivatives 4.0
+International License (CC BY-ND 4.0), https://creativecommons.org/licenses/by-nd/4.0/ .
+It is not covered by the AGPL licence of this repository.
+
+FitSM was co-funded by the European Commission under contract number 312851.
+
+FitSM and the FitSM logo are trademarks registered by FitSM e.V. on behalf of the FitSM
+Committee. The use of the FitSM trademark in connection with this product does not
+signify any affiliation with or endorsement by the FitSM Committee or FitSM e.V.

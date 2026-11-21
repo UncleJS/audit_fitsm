@@ -114,6 +114,16 @@ ALL_SECRETS=("${DB_PASSWORD_SECRET}" "${DB_ROOT_PASSWORD_SECRET}" "${JWT_SECRET_
 # kept together with the volumes (removed only with --purge).
 DB_SECRETS=("${DB_PASSWORD_SECRET}" "${DB_ROOT_PASSWORD_SECRET}")
 
+# --- FitSM-6 workbook (local download, git- and image-ignored; copied into containers with podman cp) ---
+FITSM_WORKBOOK_BASENAME="FitSM-6_Assessment_and_Audit_Tool_V3.0.3"
+FITSM_WORKBOOK_CANDIDATES=(
+  "${PROJECT_ROOT}/${FITSM_WORKBOOK_BASENAME}.xlsx"
+  "${PROJECT_ROOT}/${FITSM_WORKBOOK_BASENAME}.ods"
+)
+FITSM_SEED_MIGRATION="db/migrations/0017_fitsm6_catalog_seed.sql"
+# Temp files the scripts place inside a container (removed again after use).
+CONTAINER_TMP_PREFIX="/tmp/${PROJECT_PREFIX}"
+
 log() { printf '[%s] %s\n' "${PROJECT_PREFIX}" "$*"; }
 warn() { printf '[%s] WARNING: %s\n' "${PROJECT_PREFIX}" "$*" >&2; }
 die() {
@@ -240,6 +250,41 @@ reset_failed_services() {
   for svc in "${ALL_SERVICES[@]}"; do
     systemctl --user reset-failed "${svc}" >/dev/null 2>&1 || true
   done
+}
+
+# Prints the default workbook path (repo-root .xlsx, else .ods); fails if neither exists.
+default_fitsm_workbook() {
+  local candidate
+  for candidate in "${FITSM_WORKBOOK_CANDIDATES[@]}"; do
+    if [[ -f "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+require_container_running() {
+  local state
+  state="$(podman inspect --format '{{.State.Running}}' "$1" 2>/dev/null || true)"
+  [[ "${state}" == "true" ]] || die "container $1 is not running; start it with scripts/start.sh"
+}
+
+# copy_workbook_into <container> <host-path>: podman cp the workbook into the container's /tmp and print the
+# in-container path. The caller removes it with remove_container_file.
+copy_workbook_into() {
+  local container="$1" host_path="$2" ext dest
+  [[ -f "${host_path}" ]] || die "workbook not found: ${host_path}"
+  ext="${host_path##*.}"
+  ext="${ext,,}"
+  [[ "${ext}" == "xlsx" || "${ext}" == "ods" ]] || die "workbook must be an .xlsx or .ods file: ${host_path}"
+  dest="${CONTAINER_TMP_PREFIX}-fitsm-workbook-$$.${ext}"
+  podman cp "${host_path}" "${container}:${dest}" >/dev/null
+  printf '%s\n' "${dest}"
+}
+
+remove_container_file() {
+  podman exec "$1" rm -f "$2" >/dev/null 2>&1 || true
 }
 
 print_urls() {

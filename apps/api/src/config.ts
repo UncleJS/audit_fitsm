@@ -27,13 +27,18 @@ export const config = {
   trustProxy: process.env.TRUST_PROXY === "1",
   rateLimit: {
     windowMs: envNumber("RATE_LIMIT_WINDOW_MS", 60000),
+    /** Requests per client IP, method and normalized route per window. */
     maxRequests: envNumber("RATE_LIMIT_MAX", 300),
+    /** Requests per client IP across all routes per window. */
+    maxRequestsPerIp: envNumber("RATE_LIMIT_IP_MAX", 1200),
     maxBuckets: envNumber("RATE_LIMIT_MAX_BUCKETS", 10000),
   },
   loginRateLimit: {
     windowMs: envNumber("LOGIN_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000),
-    /** Attempts per email address per window. */
-    maxRequests: envNumber("LOGIN_RATE_LIMIT_MAX", 10),
+    /** Failed attempts per (email address, client IP) per window. */
+    maxRequestsPerEmailIp: envNumber("LOGIN_RATE_LIMIT_MAX", 10),
+    /** Failed attempts per email address across all IPs per window (brute-force backstop). */
+    maxRequestsPerEmailGlobal: envNumber("LOGIN_RATE_LIMIT_EMAIL_GLOBAL_MAX", 100),
     /** Attempts per client IP per window (covers spraying many emails from one address). */
     maxRequestsPerIp: envNumber("LOGIN_RATE_LIMIT_IP_MAX", 30),
   },

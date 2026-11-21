@@ -71,7 +71,7 @@ const lockAuditForWrite = async (
   options: { canWriteCompleted: boolean; requiredStatus?: string; requiredStatusMessage?: string },
 ): Promise<string> => {
   const [rows] = await conn.query<RowDataPacket[]>(
-    "SELECT status FROM audits WHERE id = ? AND archived_at IS NULL FOR UPDATE",
+    "SELECT status FROM audits WHERE id = ? AND archived_UTC IS NULL FOR UPDATE",
     [auditId],
   );
   if (!rows.length) throw new AuditWriteRejected(404, "Audit not found");
@@ -115,10 +115,10 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       }
 
       const [rows] = await db.query<RowDataPacket[]>(
-        `SELECT id, org_id, name, status, audit_date, created_at, updated_at
+        `SELECT id, org_id, name, status, audit_date_UTC, created_UTC, updated_UTC
        FROM audits
-       WHERE org_id = ? AND archived_at IS NULL
-       ORDER BY audit_date DESC, id DESC`,
+       WHERE org_id = ? AND archived_UTC IS NULL
+       ORDER BY audit_date_UTC DESC, id DESC`,
         [orgId],
       );
 
@@ -146,14 +146,14 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       try {
         auditId = await withTransaction(async (conn) => {
           const [result] = await conn.execute(
-            `INSERT INTO audits (org_id, name, audit_date, status, created_by)
+            `INSERT INTO audits (org_id, name, audit_date_UTC, status, created_by)
            VALUES (?, ?, ?, 'draft', ?)`,
             [orgId, payload.name, payload.auditDate, auth.sub],
           );
           const newAuditId = insertIdOf(result);
 
           const [scopeRows] = await conn.query<RowDataPacket[]>(
-            "SELECT id FROM scope_options WHERE code = 'IN_SCOPE' AND archived_at IS NULL LIMIT 1",
+            "SELECT id FROM scope_options WHERE code = 'IN_SCOPE' AND archived_UTC IS NULL LIMIT 1",
           );
           const inScopeId = scopeRows.length ? Number(scopeRows[0].id) : null;
 
@@ -162,13 +162,13 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
               `INSERT INTO audit_scope_targets (audit_id, process_id, cert_goal_level, custom_goal_level, scope_option_id, updated_by)
               SELECT ?, p.id, ?, NULL, ?, ?
               FROM processes p
-              WHERE p.archived_at IS NULL`,
+              WHERE p.archived_UTC IS NULL`,
               [newAuditId, payload.certGoalLevel, inScopeId, auth.sub],
             );
           }
 
           const [selectScoreRows] = await conn.query<RowDataPacket[]>(
-            "SELECT id FROM capability_scores WHERE label = 'Select …' AND archived_at IS NULL LIMIT 1",
+            "SELECT id FROM capability_scores WHERE label = 'Select …' AND archived_UTC IS NULL LIMIT 1",
           );
           const selectScoreId = selectScoreRows.length ? Number(selectScoreRows[0].id) : null;
 
@@ -176,7 +176,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
             `INSERT INTO audit_assessments (audit_id, requirement_id, capability_score_id, updated_by)
            SELECT ?, r.id, ?, ?
            FROM requirements r
-           WHERE r.archived_at IS NULL`,
+           WHERE r.archived_UTC IS NULL`,
             [newAuditId, selectScoreId, auth.sub],
           );
           return newAuditId;
@@ -231,15 +231,15 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       // Compare-and-set on the status we validated against: a concurrent transition makes this a no-op (409).
       const changed = await withTransaction(async (conn) => {
         const [lockedRows] = await conn.query<RowDataPacket[]>(
-          "SELECT status FROM audits WHERE id = ? AND archived_at IS NULL FOR UPDATE",
+          "SELECT status FROM audits WHERE id = ? AND archived_UTC IS NULL FOR UPDATE",
           [auditId],
         );
         if (!lockedRows.length || String(lockedRows[0].status) !== String(access.status)) return false;
 
         const [updateResult] = await conn.execute(
           `UPDATE audits
-         SET status = ?, completed_at = ${completedAt}, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
-         WHERE id = ? AND archived_at IS NULL AND status = ?`,
+         SET status = ?, completed_UTC = ${completedAt}, updated_by = ?, updated_UTC = UTC_TIMESTAMP(3)
+         WHERE id = ? AND archived_UTC IS NULL AND status = ?`,
           [payload.status, auth.sub, auditId, String(access.status)],
         );
         if (affectedRowsOf(updateResult) === 0) return false;
@@ -295,12 +295,14 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return { error: "Scope and cert goals are editable only while audit is draft" };
       }
 
-      const [processRows] = await db.query<RowDataPacket[]>("SELECT id, code FROM processes WHERE archived_at IS NULL");
+      const [processRows] = await db.query<RowDataPacket[]>(
+        "SELECT id, code FROM processes WHERE archived_UTC IS NULL",
+      );
       const processIdByCode = new Map<string, number>();
       for (const row of processRows) processIdByCode.set(String(row.code), Number(row.id));
 
       const [scopeRows] = await db.query<RowDataPacket[]>(
-        "SELECT id, code FROM scope_options WHERE archived_at IS NULL",
+        "SELECT id, code FROM scope_options WHERE archived_UTC IS NULL",
       );
       const scopeIdByCode = new Map<string, number>();
       for (const row of scopeRows) scopeIdByCode.set(String(row.code), Number(row.id));
@@ -326,7 +328,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
              custom_goal_level = VALUES(custom_goal_level),
              scope_option_id = VALUES(scope_option_id),
              updated_by = VALUES(updated_by),
-             updated_at = UTC_TIMESTAMP(3)`,
+             updated_UTC = UTC_TIMESTAMP(3)`,
             [auditId, processId, item.certGoalLevel, item.customGoalLevel ?? null, scopeOptionId, auth.sub],
           );
         }
@@ -362,12 +364,12 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return access.reason ? { error: access.reason } : forbidden;
       }
 
-      const [reqRows] = await db.query<RowDataPacket[]>("SELECT id, code FROM requirements WHERE archived_at IS NULL");
+      const [reqRows] = await db.query<RowDataPacket[]>("SELECT id, code FROM requirements WHERE archived_UTC IS NULL");
       const requirementIdByCode = new Map<string, number>();
       for (const row of reqRows) requirementIdByCode.set(String(row.code), Number(row.id));
 
       const [scoreRows] = await db.query<RowDataPacket[]>(
-        "SELECT id, label FROM capability_scores WHERE archived_at IS NULL",
+        "SELECT id, label FROM capability_scores WHERE archived_UTC IS NULL",
       );
       const scoreIdByLabel = new Map<string, number>();
       for (const row of scoreRows) scoreIdByLabel.set(String(row.label), Number(row.id));
@@ -430,7 +432,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
           const existingId = Number(existing.id);
           await conn.execute(
             `UPDATE audit_assessments
-             SET capability_score_id = ?, comment_text = ?, evidence_text = ?, updated_by = ?, updated_at = UTC_TIMESTAMP(3)
+             SET capability_score_id = ?, comment_text = ?, evidence_text = ?, updated_by = ?, updated_UTC = UTC_TIMESTAMP(3)
              WHERE id = ?`,
             [scoreId, commentText, evidenceText, auth.sub, existingId],
           );
@@ -493,8 +495,8 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       const [assessmentRows] = await db.query<RowDataPacket[]>(
         `SELECT aa.id, a.id AS audit_id, a.org_id, a.status AS audit_status
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
-       WHERE aa.id = ? AND aa.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_UTC IS NULL
+       WHERE aa.id = ? AND aa.archived_UTC IS NULL
        LIMIT 1`,
         [assessmentId],
       );
@@ -558,7 +560,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return access.reason ? { error: access.reason } : forbidden;
       }
       const [fields] = await db.query<RowDataPacket[]>(
-        "SELECT id, field_key FROM audit_detail_fields WHERE archived_at IS NULL",
+        "SELECT id, field_key FROM audit_detail_fields WHERE archived_UTC IS NULL",
       );
       const fieldIdByKey = new Map<string, number>();
       for (const row of fields) fieldIdByKey.set(String(row.field_key), Number(row.id));
@@ -575,7 +577,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
           const [existingRows] = await conn.query<RowDataPacket[]>(
             `SELECT id, response_text, note_text
            FROM audit_detail_responses
-           WHERE audit_id = ? AND field_id = ? AND archived_at IS NULL
+           WHERE audit_id = ? AND field_id = ? AND archived_UTC IS NULL
            LIMIT 1
            FOR UPDATE`,
             [auditId, fieldId],
@@ -599,7 +601,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
              response_text = VALUES(response_text),
              note_text = VALUES(note_text),
              updated_by = VALUES(updated_by),
-             updated_at = UTC_TIMESTAMP(3)`,
+             updated_UTC = UTC_TIMESTAMP(3)`,
             [auditId, fieldId, nextValue.responseText, nextValue.noteText, auth.sub],
           );
 
@@ -655,7 +657,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         const [existingRows] = await conn.query<RowDataPacket[]>(
           `SELECT id, conclusion_text
          FROM audit_conclusions
-         WHERE audit_id = ? AND archived_at IS NULL
+         WHERE audit_id = ? AND archived_UTC IS NULL
          LIMIT 1
          FOR UPDATE`,
           [auditId],
@@ -668,7 +670,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
          ON DUPLICATE KEY UPDATE
            conclusion_text = VALUES(conclusion_text),
            updated_by = VALUES(updated_by),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_UTC = UTC_TIMESTAMP(3)`,
           [auditId, nextConclusion, auth.sub],
         );
 
@@ -716,13 +718,13 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
          adf.guidance_text,
          adr.response_text,
          adr.note_text,
-         adr.updated_at
+         adr.updated_UTC
        FROM audit_detail_fields adf
        LEFT JOIN audit_detail_responses adr
          ON adr.field_id = adf.id
          AND adr.audit_id = ?
-         AND adr.archived_at IS NULL
-       WHERE adf.archived_at IS NULL
+         AND adr.archived_UTC IS NULL
+       WHERE adf.archived_UTC IS NULL
        ORDER BY adf.sort_order`,
         [auditId],
       );
@@ -748,9 +750,9 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       }
 
       const [rows] = await db.query<RowDataPacket[]>(
-        `SELECT conclusion_text, updated_at, updated_by
+        `SELECT conclusion_text, updated_UTC, updated_by
        FROM audit_conclusions
-       WHERE audit_id = ? AND archived_at IS NULL
+       WHERE audit_id = ? AND archived_UTC IS NULL
        LIMIT 1`,
         [auditId],
       );
@@ -776,10 +778,10 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       }
 
       const [auditRows] = await db.query<RowDataPacket[]>(
-        `SELECT a.id, a.org_id, a.name, a.status, a.audit_date, o.name AS client_name
+        `SELECT a.id, a.org_id, a.name, a.status, a.audit_date_UTC, o.name AS client_name
        FROM audits a
-       JOIN organizations o ON o.id = a.org_id AND o.archived_at IS NULL
-       WHERE a.id = ? AND a.archived_at IS NULL
+       JOIN organizations o ON o.id = a.org_id AND o.archived_UTC IS NULL
+       WHERE a.id = ? AND a.archived_UTC IS NULL
        LIMIT 1`,
         [auditId],
       );
@@ -811,11 +813,11 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
        LEFT JOIN audit_scope_targets ast
          ON ast.process_id = p.id
          AND ast.audit_id = ?
-         AND ast.archived_at IS NULL
+         AND ast.archived_UTC IS NULL
        LEFT JOIN scope_options so
          ON so.id = ast.scope_option_id
-         AND so.archived_at IS NULL
-       WHERE p.archived_at IS NULL
+         AND so.archived_UTC IS NULL
+       WHERE p.archived_UTC IS NULL
        ORDER BY p.sort_order ASC`,
         [auditId],
       );
@@ -838,12 +840,12 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
          cs.numeric_value AS score_numeric,
          aa.comment_text,
          aa.evidence_text,
-         aa.updated_at
+         aa.updated_UTC
        FROM audit_assessments aa
-       JOIN requirements r ON r.id = aa.requirement_id AND r.archived_at IS NULL
-       JOIN processes p ON p.id = r.process_id AND p.archived_at IS NULL
-       LEFT JOIN capability_scores cs ON cs.id = aa.capability_score_id AND cs.archived_at IS NULL
-       WHERE aa.audit_id = ? AND aa.archived_at IS NULL
+       JOIN requirements r ON r.id = aa.requirement_id AND r.archived_UTC IS NULL
+       JOIN processes p ON p.id = r.process_id AND p.archived_UTC IS NULL
+       LEFT JOIN capability_scores cs ON cs.id = aa.capability_score_id AND cs.archived_UTC IS NULL
+       WHERE aa.audit_id = ? AND aa.archived_UTC IS NULL
        ORDER BY p.sort_order ASC, r.sort_order ASC`,
         [auditId],
       );
@@ -875,7 +877,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
           scoreNumeric: row.score_numeric,
           commentText: row.comment_text,
           evidenceText: row.evidence_text,
-          updatedAt: row.updated_at,
+          updatedAt: row.updated_UTC,
         });
       }
 
@@ -887,21 +889,21 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
          adf.guidance_text,
          adr.response_text,
          adr.note_text,
-         adr.updated_at
+         adr.updated_UTC
        FROM audit_detail_fields adf
        LEFT JOIN audit_detail_responses adr
          ON adr.field_id = adf.id
          AND adr.audit_id = ?
-         AND adr.archived_at IS NULL
-       WHERE adf.archived_at IS NULL
+         AND adr.archived_UTC IS NULL
+       WHERE adf.archived_UTC IS NULL
        ORDER BY adf.sort_order ASC`,
         [auditId],
       );
 
       const [conclusionRows] = await db.query<RowDataPacket[]>(
-        `SELECT conclusion_text, updated_at
+        `SELECT conclusion_text, updated_UTC
        FROM audit_conclusions
-       WHERE audit_id = ? AND archived_at IS NULL
+       WHERE audit_id = ? AND archived_UTC IS NULL
        LIMIT 1`,
         [auditId],
       );
@@ -909,21 +911,21 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       const [scoreOptions] = await db.query<RowDataPacket[]>(
         `SELECT label, numeric_value, sort_order
        FROM capability_scores
-       WHERE archived_at IS NULL
+       WHERE archived_UTC IS NULL
        ORDER BY sort_order ASC`,
       );
 
       const [targetLevels] = await db.query<RowDataPacket[]>(
         `SELECT level, label
        FROM target_levels
-       WHERE archived_at IS NULL
+       WHERE archived_UTC IS NULL
        ORDER BY level ASC`,
       );
 
       const [scopeOptions] = await db.query<RowDataPacket[]>(
         `SELECT code, label
        FROM scope_options
-       WHERE archived_at IS NULL
+       WHERE archived_UTC IS NULL
        ORDER BY id ASC`,
       );
 
@@ -939,11 +941,11 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
                ae.new_value_json,
                ae.actor_user_id,
                u.display_name AS actor_name,
-               ae.created_at
+               ae.created_UTC
              FROM audit_events ae
              LEFT JOIN users u ON u.id = ae.actor_user_id
              WHERE ae.audit_id = ?
-             ORDER BY ae.created_at DESC, ae.id DESC
+             ORDER BY ae.created_UTC DESC, ae.id DESC
              LIMIT 100`,
               [auditId],
             )
@@ -983,8 +985,8 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       const [assessmentRows] = await db.query<RowDataPacket[]>(
         `SELECT aa.id, a.org_id
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
-       WHERE aa.id = ? AND aa.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_UTC IS NULL
+       WHERE aa.id = ? AND aa.archived_UTC IS NULL
        LIMIT 1`,
         [assessmentId],
       );
@@ -1000,18 +1002,18 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       }
 
       const [events] = await db.query<RowDataPacket[]>(
-        `SELECT id, event_type, old_value_json, new_value_json, actor_user_id, created_at
+        `SELECT id, event_type, old_value_json, new_value_json, actor_user_id, created_UTC
        FROM assessment_events
        WHERE audit_assessment_id = ?
-       ORDER BY created_at ASC, id ASC`,
+       ORDER BY created_UTC ASC, id ASC`,
         [assessmentId],
       );
 
       const [notes] = await db.query<RowDataPacket[]>(
-        `SELECT id, note_text, created_by, created_at
+        `SELECT id, note_text, created_by, created_UTC
        FROM assessment_notes
-       WHERE audit_assessment_id = ? AND archived_at IS NULL
-       ORDER BY created_at ASC, id ASC`,
+       WHERE audit_assessment_id = ? AND archived_UTC IS NULL
+       ORDER BY created_UTC ASC, id ASC`,
         [assessmentId],
       );
 
@@ -1026,9 +1028,9 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       }
 
       const [rows] = await db.query<RowDataPacket[]>(
-        `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at
+        `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_UTC
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_UTC IS NULL
        WHERE aa.id = ?
        LIMIT 1`,
         [assessmentId],
@@ -1044,7 +1046,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return forbidden;
       }
 
-      if (rows[0].archived_at) {
+      if (rows[0].archived_UTC) {
         set.status = 409;
         return { error: "Assessment is already archived" };
       }
@@ -1052,8 +1054,8 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       const archived = await withTransaction(async (conn) => {
         const [archiveResult] = await conn.execute(
           `UPDATE audit_assessments
-         SET archived_at = UTC_TIMESTAMP(3), updated_at = UTC_TIMESTAMP(3), updated_by = ?
-         WHERE id = ? AND archived_at IS NULL`,
+         SET archived_UTC = UTC_TIMESTAMP(3), updated_UTC = UTC_TIMESTAMP(3), updated_by = ?
+         WHERE id = ? AND archived_UTC IS NULL`,
           [auth.sub, assessmentId],
         );
         if (affectedRowsOf(archiveResult) === 0) return false;
@@ -1088,9 +1090,9 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
       }
 
       const [rows] = await db.query<RowDataPacket[]>(
-        `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_at
+        `SELECT aa.id, aa.audit_id, a.org_id, aa.archived_UTC
        FROM audit_assessments aa
-       JOIN audits a ON a.id = aa.audit_id AND a.archived_at IS NULL
+       JOIN audits a ON a.id = aa.audit_id AND a.archived_UTC IS NULL
        WHERE aa.id = ?
        LIMIT 1`,
         [assessmentId],
@@ -1106,7 +1108,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         return forbidden;
       }
 
-      if (!rows[0].archived_at) {
+      if (!rows[0].archived_UTC) {
         set.status = 409;
         return { error: "Assessment is already active" };
       }
@@ -1116,8 +1118,8 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         restored = await withTransaction(async (conn) => {
           const [restoreResult] = await conn.execute(
             `UPDATE audit_assessments
-           SET archived_at = NULL, updated_at = UTC_TIMESTAMP(3), updated_by = ?
-           WHERE id = ? AND archived_at IS NOT NULL`,
+           SET archived_UTC = NULL, updated_UTC = UTC_TIMESTAMP(3), updated_by = ?
+           WHERE id = ? AND archived_UTC IS NOT NULL`,
             [auth.sub, assessmentId],
           );
           if (affectedRowsOf(restoreResult) === 0) return false;
@@ -1248,7 +1250,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         `SELECT *
        FROM v_trends
        WHERE org_id = ?
-       ORDER BY audit_date DESC, process_code`,
+       ORDER BY audit_date_UTC DESC, process_code`,
         [orgId],
       );
 

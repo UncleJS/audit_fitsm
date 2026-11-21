@@ -35,7 +35,7 @@
           "status": {
             "type": "string"
           },
-          "audit_date": {
+          "audit_date_UTC": {
             "type": "string",
             "format": "date"
           }

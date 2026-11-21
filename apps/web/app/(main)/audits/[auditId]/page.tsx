@@ -258,7 +258,7 @@ export default function AuditWorkspacePage() {
     const defaultOpen: Record<string, boolean> = {};
     for (const group of data.groupedProcesses ?? []) defaultOpen[String(group.processCode)] = true;
     setOpenProcessByCode((prev) => ({ ...defaultOpen, ...prev }));
-    if (mode === "replace") setLastSavedAt(String(data.audit?.updated_at ?? ""));
+    if (mode === "replace") setLastSavedAt(String(data.audit?.updated_UTC ?? ""));
     setLoadState("ready");
 
     await loadExports();
@@ -662,7 +662,7 @@ export default function AuditWorkspacePage() {
 
   const auditSummary = [
     { label: "Client", value: decodeHtmlEntities(workspace.audit.client_name) },
-    { label: "Audit date", value: formatDateOnly(workspace.audit.audit_date) },
+    { label: "Audit date", value: formatDateOnly(workspace.audit.audit_date_UTC) },
     { label: "Processes", value: groupedProcesses.length },
     { label: "Exports", value: pdfExports.length },
   ];

@@ -57,12 +57,12 @@ try {
   await conn.execute(
     `INSERT INTO organizations (name)
      VALUES (?)
-     ON DUPLICATE KEY UPDATE updated_at = UTC_TIMESTAMP(3)`,
+     ON DUPLICATE KEY UPDATE updated_UTC = UTC_TIMESTAMP(3)`,
     [orgName],
   );
 
   const [orgRows] = await conn.query<RowDataPacket[]>(
-    "SELECT id FROM organizations WHERE name = ? AND archived_at IS NULL LIMIT 1",
+    "SELECT id FROM organizations WHERE name = ? AND archived_UTC IS NULL LIMIT 1",
     [orgName],
   );
   const orgRow = orgRows[0];
@@ -82,18 +82,18 @@ try {
            password_hash = VALUES(password_hash),
            display_name = VALUES(display_name),
            token_version = token_version + 1,
-           updated_at = UTC_TIMESTAMP(3)`
+           updated_UTC = UTC_TIMESTAMP(3)`
       : `INSERT INTO users (email, password_hash, display_name, auth_provider)
          VALUES (?, ?, ?, 'local')
          ON DUPLICATE KEY UPDATE
            password_hash = VALUES(password_hash),
            display_name = VALUES(display_name),
-           updated_at = UTC_TIMESTAMP(3)`,
+           updated_UTC = UTC_TIMESTAMP(3)`,
     [email, passwordHash, displayName],
   );
 
   const [userRows] = await conn.query<RowDataPacket[]>(
-    "SELECT id FROM users WHERE email = ? AND archived_at IS NULL LIMIT 1",
+    "SELECT id FROM users WHERE email = ? AND archived_UTC IS NULL LIMIT 1",
     [email],
   );
   const userRow = userRows[0];
@@ -101,14 +101,14 @@ try {
   const userId = Number(userRow.id);
 
   const [roleRows] = await conn.query<RowDataPacket[]>(
-    "SELECT id, code FROM roles WHERE code IN ('system_admin','org_admin') AND archived_at IS NULL",
+    "SELECT id, code FROM roles WHERE code IN ('system_admin','org_admin') AND archived_UTC IS NULL",
   );
 
   for (const role of roleRows) {
     await conn.execute(
       `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
        VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE created_at = org_user_roles.created_at`,
+       ON DUPLICATE KEY UPDATE created_UTC = org_user_roles.created_UTC`,
       [orgId, userId, role.id, userId],
     );
   }

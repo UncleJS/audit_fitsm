@@ -34,7 +34,7 @@ try {
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       filename VARCHAR(255) NOT NULL,
-      executed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      executed_UTC DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
       PRIMARY KEY (id),
       UNIQUE KEY uq_schema_migrations_filename (filename)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

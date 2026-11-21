@@ -79,7 +79,7 @@ export function ActivityPanel({ workspace }: { workspace: any }) {
                       </p>
                     ) : null}
                   </div>
-                  <div className="text-sm text-muted">{formatLocalTimestamp(event.created_at)}</div>
+                  <div className="text-sm text-muted">{formatLocalTimestamp(event.created_UTC)}</div>
                 </CardContent>
               </Card>
             );

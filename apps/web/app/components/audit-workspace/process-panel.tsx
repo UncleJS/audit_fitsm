@@ -41,8 +41,8 @@ type AssessmentEdit = {
   evidenceText?: string;
 };
 
-type HistoryNote = { id: number; note_text: string; created_at: string };
-type HistoryEvent = { id: number; event_type: string; created_at: string };
+type HistoryNote = { id: number; note_text: string; created_UTC: string };
+type HistoryEvent = { id: number; event_type: string; created_UTC: string };
 
 export default function ProcessPanel({
   group,
@@ -356,7 +356,7 @@ export default function ProcessPanel({
                                     {(history?.notes ?? []).map((note) => (
                                       <li key={`n-${note.id}`}>
                                         {decodeHtmlEntities(note.note_text)}{" "}
-                                        <span className="text-muted">({formatLocalTimestamp(note.created_at)})</span>
+                                        <span className="text-muted">({formatLocalTimestamp(note.created_UTC)})</span>
                                       </li>
                                     ))}
                                   </ul>
@@ -368,7 +368,7 @@ export default function ProcessPanel({
                                     {(history?.events ?? []).map((evt) => (
                                       <li key={`e-${evt.id}`}>
                                         <strong>{decodeHtmlEntities(evt.event_type)}</strong>{" "}
-                                        <span className="text-muted">({formatLocalTimestamp(evt.created_at)})</span>
+                                        <span className="text-muted">({formatLocalTimestamp(evt.created_UTC)})</span>
                                       </li>
                                     ))}
                                   </ul>

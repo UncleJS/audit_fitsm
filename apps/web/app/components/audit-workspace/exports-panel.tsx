@@ -48,7 +48,7 @@ export function ExportsPanel({
             <tbody>
               {pdfExports.map((item: any) => (
                 <tr key={item.id}>
-                  <td>{formatLocalTimestamp(item.generated_at)}</td>
+                  <td>{formatLocalTimestamp(item.generated_UTC)}</td>
                   <td>{item.file_name}</td>
                   <td>{formatBytes(item.file_size_bytes)}</td>
                   <td>{item.is_current ? "Yes" : "No"}</td>

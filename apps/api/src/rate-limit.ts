@@ -92,6 +92,89 @@ export const checkRateLimit = (key: string, windowMs: number, maxRequests: numbe
 export const checkProtectedRateLimit = (key: string, windowMs: number, maxRequests: number): RateLimitResult =>
   consume(protectedBuckets, false, key, windowMs, maxRequests);
 
+/** Returns whether `key` would be allowed right now, without counting an attempt. */
+const peek = (map: Map<string, Bucket>, key: string, maxRequests: number): RateLimitResult => {
+  const now = Date.now();
+  const current = map.get(key);
+  if (!current || now >= current.resetAt || current.count < Math.max(1, maxRequests)) {
+    return { allowed: true };
+  }
+  return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((current.resetAt - now) / 1000)) };
+};
+
+type RequestLimits = {
+  windowMs: number;
+  /** Requests per client IP, method and normalized route. */
+  maxRequests: number;
+  /** Requests per client IP across all routes. */
+  maxRequestsPerIp: number;
+};
+
+/**
+ * General request limiter: one IP-wide bucket over all routes plus one bucket per IP, method and route.
+ * Both live in the evicting map. The IP-wide bucket is checked first so a blocked client stops there.
+ */
+export const checkRequestRateLimit = (
+  ip: string,
+  method: string,
+  route: string,
+  limits: RequestLimits,
+): RateLimitResult => {
+  const ipWide = checkRateLimit(`ip-all:${ip}`, limits.windowMs, limits.maxRequestsPerIp);
+  if (!ipWide.allowed) return ipWide;
+  return checkRateLimit(`${ip}:${method}:${route}`, limits.windowMs, limits.maxRequests);
+};
+
+type LoginLimits = {
+  windowMs: number;
+  /** Attempts per client IP across all emails (counts every attempt). */
+  maxRequestsPerIp: number;
+  /** Failed attempts per email address from one client IP. */
+  maxRequestsPerEmailIp: number;
+  /** Failed attempts per email address across all IPs (brute-force backstop). */
+  maxRequestsPerEmailGlobal: number;
+};
+
+export const normalizeLoginEmail = (email: string): string => email.trim().toLowerCase();
+
+const loginIpKey = (ip: string): string => `login-ip:${ip}`;
+const loginEmailIpKey = (email: string, ip: string): string => `login-email-ip:${normalizeLoginEmail(email)}|${ip}`;
+const loginEmailGlobalKey = (email: string): string => `login-email:${normalizeLoginEmail(email)}`;
+
+/** Per-IP login bucket; counts every attempt, including malformed ones. */
+export const checkLoginIpRateLimit = (ip: string, limits: LoginLimits): RateLimitResult =>
+  checkProtectedRateLimit(loginIpKey(ip), limits.windowMs, limits.maxRequestsPerIp);
+
+/**
+ * Email buckets for a login attempt: per (email, IP) and a much higher per-email cap across all IPs.
+ * A stranger failing against a victim's email only fills their own (email, IP) bucket, so the victim
+ * can still sign in from elsewhere until the global backstop trips.
+ *
+ * The attempt is counted up front (both buckets checked first, then both consumed) so parallel guesses
+ * cannot slip past while a password hash is being verified; `recordLoginSuccess` refunds it afterwards,
+ * which means only failed attempts stay counted.
+ */
+export const checkLoginEmailRateLimit = (email: string, ip: string, limits: LoginLimits): RateLimitResult => {
+  const emailIpKey = loginEmailIpKey(email, ip);
+  const globalKey = loginEmailGlobalKey(email);
+  const emailIp = peek(protectedBuckets, emailIpKey, limits.maxRequestsPerEmailIp);
+  if (!emailIp.allowed) return emailIp;
+  const global = peek(protectedBuckets, globalKey, limits.maxRequestsPerEmailGlobal);
+  if (!global.allowed) return global;
+  checkProtectedRateLimit(emailIpKey, limits.windowMs, limits.maxRequestsPerEmailIp);
+  checkProtectedRateLimit(globalKey, limits.windowMs, limits.maxRequestsPerEmailGlobal);
+  return { allowed: true };
+};
+
+/** After a successful login: clear the (email, IP) bucket and refund this attempt from the global email bucket. */
+export const recordLoginSuccess = (email: string, ip: string): void => {
+  protectedBuckets.delete(loginEmailIpKey(email, ip));
+  const global = protectedBuckets.get(loginEmailGlobalKey(email));
+  if (global && global.count > 0) {
+    global.count -= 1;
+  }
+};
+
 setInterval(() => {
   purgeExpired(Date.now());
 }, 30000).unref?.();

@@ -52,7 +52,9 @@ CI_DB_PASSWORD_SECRET="${CI_SECRETS[0]}"
 CI_DB_ROOT_SECRET="${CI_SECRETS[1]}"
 CI_JWT_SECRET="${CI_SECRETS[2]}"
 
-FITSM_ODS_PATH="${FITSM_ODS_PATH:-/workspace/FitSM-6_Assessment_and_Audit_Tool_V3.0.3.ods}"
+# Optional workbook import: FITSM_ODS_PATH is a path inside the CI container (legacy); otherwise the host workbook
+# (repo-root .xlsx, else .ods) is podman cp'd in. Without either, the catalog comes from the seed migrations only.
+FITSM_ODS_PATH="${FITSM_ODS_PATH:-}"
 
 remove_ci_resources() {
   podman rm -f -v "${DEV_CTR}" "${DB_CTR}" >/dev/null 2>&1 || true
@@ -159,15 +161,27 @@ podman exec -e BOOTSTRAP_ADMIN_PASSWORD="${TEST_ADMIN_PASSWORD}" "${DEV_CTR}" \
   "CI Admin" \
   "CI Organization"
 
-if podman exec "${DEV_CTR}" test -f "${FITSM_ODS_PATH}"; then
-  printf "[ci] importing FitSM workbook from %s\n" "${FITSM_ODS_PATH}"
+FITSM_CTR_WORKBOOK=""
+FITSM_CTR_WORKBOOK_TEMP="false"
+if [[ -n "${FITSM_ODS_PATH}" ]] && podman exec "${DEV_CTR}" test -f "${FITSM_ODS_PATH}"; then
+  FITSM_CTR_WORKBOOK="${FITSM_ODS_PATH}"
+elif FITSM_HOST_WORKBOOK="$(default_fitsm_workbook)"; then
+  FITSM_CTR_WORKBOOK="$(copy_workbook_into "${DEV_CTR}" "${FITSM_HOST_WORKBOOK}")"
+  FITSM_CTR_WORKBOOK_TEMP="true"
+fi
+
+if [[ -n "${FITSM_CTR_WORKBOOK}" ]]; then
+  printf "[ci] importing FitSM workbook from %s\n" "${FITSM_CTR_WORKBOOK}"
   podman exec "${DEV_CTR}" bun run --cwd /workspace/apps/api import:fitsm -- \
-    "${FITSM_ODS_PATH}" \
+    "${FITSM_CTR_WORKBOOK}" \
     1 \
     1 \
     "CI Imported Audit"
+  if [[ "${FITSM_CTR_WORKBOOK_TEMP}" == "true" ]]; then
+    remove_container_file "${DEV_CTR}" "${FITSM_CTR_WORKBOOK}"
+  fi
 else
-  printf "[ci] FITSM workbook not found at %s; using minimal seeded catalog from migrations\n" "${FITSM_ODS_PATH}"
+  printf "[ci] no FitSM workbook found; using the catalog seeded by the migrations\n"
 fi
 
 printf "[ci] backup and restore smoke\n"

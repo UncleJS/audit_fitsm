@@ -29,9 +29,9 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
 
       if (isSystemAdmin(auth)) {
         const [rows] = await db.query<RowDataPacket[]>(
-          `SELECT id, name, created_at, updated_at
+          `SELECT id, name, created_UTC, updated_UTC
          FROM organizations
-         WHERE archived_at IS NULL
+         WHERE archived_UTC IS NULL
          ORDER BY name ASC`,
         );
         return rows;
@@ -44,9 +44,9 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
 
       const placeholders = orgIds.map(() => "?").join(",");
       const [rows] = await db.query<RowDataPacket[]>(
-        `SELECT id, name, created_at, updated_at
+        `SELECT id, name, created_UTC, updated_UTC
        FROM organizations
-       WHERE archived_at IS NULL AND id IN (${placeholders})
+       WHERE archived_UTC IS NULL AND id IN (${placeholders})
        ORDER BY name ASC`,
         orgIds,
       );
@@ -73,7 +73,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
       const [existingRows] = await db.query<RowDataPacket[]>(
         `SELECT id
        FROM organizations
-       WHERE name = ? AND archived_at IS NULL
+       WHERE name = ? AND archived_UTC IS NULL
        LIMIT 1`,
         [clientName],
       );
@@ -95,7 +95,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
         const [roleRows] = await conn.query<RowDataPacket[]>(
           `SELECT id
          FROM roles
-         WHERE code = 'org_admin' AND archived_at IS NULL
+         WHERE code = 'org_admin' AND archived_UTC IS NULL
          LIMIT 1`,
         );
 
@@ -103,7 +103,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
           await conn.execute(
             `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
            VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE created_at = org_user_roles.created_at`,
+           ON DUPLICATE KEY UPDATE created_UTC = org_user_roles.created_UTC`,
             [newOrgId, auth.sub, Number(roleRows[0].id), auth.sub],
           );
         }
@@ -123,7 +123,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
       const [rows] = await db.query<RowDataPacket[]>(
         `SELECT code, description
        FROM roles
-       WHERE archived_at IS NULL
+       WHERE archived_UTC IS NULL
          ${includeSystemRole ? "" : "AND code <> 'system_admin'"}
        ORDER BY id ASC`,
       );
@@ -147,15 +147,15 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
          u.email,
          u.display_name,
          u.is_active,
-         MAX(CASE WHEN our.archived_at IS NULL THEN 1 ELSE 0 END) AS has_active_org_roles,
+         MAX(CASE WHEN our.archived_UTC IS NULL THEN 1 ELSE 0 END) AS has_active_org_roles,
          GROUP_CONCAT(
-           DISTINCT CASE WHEN our.archived_at IS NULL AND r.archived_at IS NULL THEN r.code END
+           DISTINCT CASE WHEN our.archived_UTC IS NULL AND r.archived_UTC IS NULL THEN r.code END
            ORDER BY r.id SEPARATOR ','
          ) AS roles_csv
        FROM users u
        JOIN org_user_roles our ON our.user_id = u.id AND our.org_id = ?
        LEFT JOIN roles r ON r.id = our.role_id
-       WHERE u.archived_at IS NULL
+       WHERE u.archived_UTC IS NULL
        GROUP BY u.id, u.email, u.display_name, u.is_active
        ORDER BY u.display_name ASC, u.email ASC`,
         [orgId],
@@ -195,7 +195,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
       const [existingUsers] = await db.query<RowDataPacket[]>(
         `SELECT id
        FROM users
-       WHERE email = ? AND archived_at IS NULL
+       WHERE email = ? AND archived_UTC IS NULL
        LIMIT 1`,
         [payload.email],
       );
@@ -204,7 +204,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
         `SELECT id, code
        FROM roles
        WHERE code IN (${payload.roles.map(() => "?").join(",")})
-         AND archived_at IS NULL`,
+         AND archived_UTC IS NULL`,
         payload.roles,
       );
 
@@ -254,7 +254,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
           await conn.execute(
             `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by)
            VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
+           ON DUPLICATE KEY UPDATE archived_UTC = NULL, created_UTC = org_user_roles.created_UTC`,
             [orgId, targetUserId, Number(role.id), auth.sub],
           );
         }
@@ -294,7 +294,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
       }
 
       const [userRows] = await db.query<RowDataPacket[]>(
-        `SELECT id FROM users WHERE id = ? AND archived_at IS NULL LIMIT 1`,
+        `SELECT id FROM users WHERE id = ? AND archived_UTC IS NULL LIMIT 1`,
         [userId],
       );
       if (!userRows.length) {
@@ -311,10 +311,10 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
       const [currentRoleRows] = await db.query<RowDataPacket[]>(
         `SELECT r.code
        FROM org_user_roles our
-       JOIN roles r ON r.id = our.role_id AND r.archived_at IS NULL
+       JOIN roles r ON r.id = our.role_id AND r.archived_UTC IS NULL
        WHERE our.org_id = ?
          AND our.user_id = ?
-         AND our.archived_at IS NULL
+         AND our.archived_UTC IS NULL
        ORDER BY r.code ASC`,
         [orgId, userId],
       );
@@ -326,10 +326,10 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
           const [archiveResult] = await conn.execute(
             `UPDATE org_user_roles our
            JOIN roles r ON r.id = our.role_id
-           SET our.archived_at = UTC_TIMESTAMP(3)
+           SET our.archived_UTC = UTC_TIMESTAMP(3)
            WHERE our.org_id = ?
              AND our.user_id = ?
-             AND our.archived_at IS NULL
+             AND our.archived_UTC IS NULL
              AND r.code <> 'system_admin'`,
             [orgId, userId],
           );
@@ -353,7 +353,7 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
         `SELECT id, code
        FROM roles
        WHERE code IN (${roleCodesRequested.map(() => "?").join(",")})
-         AND archived_at IS NULL`,
+         AND archived_UTC IS NULL`,
         roleCodesRequested,
       );
 
@@ -370,11 +370,11 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
         await conn.execute(
           `UPDATE org_user_roles our
          JOIN roles r ON r.id = our.role_id
-         SET our.archived_at = UTC_TIMESTAMP(3)
+         SET our.archived_UTC = UTC_TIMESTAMP(3)
          WHERE our.org_id = ?
            AND our.user_id = ?
-           AND our.archived_at IS NULL
-           AND r.archived_at IS NULL
+           AND our.archived_UTC IS NULL
+           AND r.archived_UTC IS NULL
            AND r.code <> 'system_admin'
            AND r.code NOT IN (${placeholders})`,
           [orgId, userId, ...roleCodesRequested],
@@ -382,9 +382,9 @@ export const registerOrgRoutes = (app: AppBase): AppBase =>
 
         for (const role of roleRows) {
           await conn.execute(
-            `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by, archived_at)
+            `INSERT INTO org_user_roles (org_id, user_id, role_id, created_by, archived_UTC)
            VALUES (?, ?, ?, ?, NULL)
-           ON DUPLICATE KEY UPDATE archived_at = NULL, created_at = org_user_roles.created_at`,
+           ON DUPLICATE KEY UPDATE archived_UTC = NULL, created_UTC = org_user_roles.created_UTC`,
             [orgId, userId, Number(role.id), auth.sub],
           );
         }

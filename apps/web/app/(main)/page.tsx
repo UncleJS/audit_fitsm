@@ -23,9 +23,9 @@ type AuditRow = {
   id: number;
   name: string;
   status: string;
-  audit_date: string;
-  created_at?: string;
-  updated_at?: string;
+  audit_date_UTC: string;
+  created_UTC?: string;
+  updated_UTC?: string;
 };
 
 export default function HomePage() {
@@ -176,19 +176,19 @@ export default function HomePage() {
     .filter((audit) => (statusFilter === "all" ? true : audit.status === statusFilter))
     .filter((audit) => {
       if (!searchTerm.trim()) return true;
-      const haystack = `${audit.id} ${audit.name} ${audit.status} ${audit.audit_date}`.toLowerCase();
+      const haystack = `${audit.id} ${audit.name} ${audit.status} ${audit.audit_date_UTC}`.toLowerCase();
       return haystack.includes(searchTerm.trim().toLowerCase());
     })
     .sort((a, b) => {
       if (sortBy === "name_asc") return a.name.localeCompare(b.name);
       if (sortBy === "status_asc") return a.status.localeCompare(b.status) || a.name.localeCompare(b.name);
-      if (sortBy === "audit_date_asc") return String(a.audit_date).localeCompare(String(b.audit_date));
-      if (sortBy === "audit_date_desc") return String(b.audit_date).localeCompare(String(a.audit_date));
-      return String(b.updated_at ?? b.audit_date).localeCompare(String(a.updated_at ?? a.audit_date));
+      if (sortBy === "audit_date_asc") return String(a.audit_date_UTC).localeCompare(String(b.audit_date_UTC));
+      if (sortBy === "audit_date_desc") return String(b.audit_date_UTC).localeCompare(String(a.audit_date_UTC));
+      return String(b.updated_UTC ?? b.audit_date_UTC).localeCompare(String(a.updated_UTC ?? a.audit_date_UTC));
     });
 
   const recentlyUpdated = [...audits]
-    .sort((a, b) => String(b.updated_at ?? b.audit_date).localeCompare(String(a.updated_at ?? a.audit_date)))
+    .sort((a, b) => String(b.updated_UTC ?? b.audit_date_UTC).localeCompare(String(a.updated_UTC ?? a.audit_date_UTC)))
     .slice(0, 4);
 
   const trendByAudit = aggregateTrendsByAudit(trendRows, audits);
