@@ -29,8 +29,10 @@ import {
   detailsPayloadFromSnapshot,
   detailsSnapshotOf,
   editsFromWorkspace,
+  type ScoredCount,
   scopePayloadFromSnapshot,
   scopeSnapshotOf,
+  scoredCountOf,
   snapshotsOf,
   WORKSPACE_SECTIONS,
   type WorkspaceSection,
@@ -76,8 +78,7 @@ type WorkspaceTab = (typeof WORKSPACE_TABS)[number]["id"];
 
 const TAB_STORAGE_KEY = "audit_fitsm_workspace_tab";
 
-const isWorkspaceTab = (value: unknown): value is WorkspaceTab =>
-  WORKSPACE_TABS.some((tab) => tab.id === value);
+const isWorkspaceTab = (value: unknown): value is WorkspaceTab => WORKSPACE_TABS.some((tab) => tab.id === value);
 
 const parseAuditId = (raw: unknown): number | null => {
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -722,6 +723,11 @@ export default function AuditWorkspacePage() {
     return a.index - b.index || a.number - b.number || a.raw.localeCompare(b.raw);
   });
 
+  const scoredByProcess: Record<string, ScoredCount> = {};
+  for (const group of groupedProcesses) {
+    scoredByProcess[String(group.processCode)] = scoredCountOf(group.requirements, edits);
+  }
+
   const auditSummary = [
     { label: "Client", value: decodeHtmlEntities(workspace.audit.client_name) },
     { label: "Audit date", value: formatDateOnly(workspace.audit.audit_date_UTC) },
@@ -874,7 +880,8 @@ export default function AuditWorkspacePage() {
 
         <div
           ref={stickyBarRef}
-          className="sticky top-4 z-30 rounded-2xl border border-border/80 bg-surface/95 px-4 py-3 backdrop-blur lg:px-5">
+          className="sticky top-4 z-30 rounded-2xl border border-border/80 bg-surface/95 px-4 py-3 backdrop-blur lg:px-5"
+        >
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -935,6 +942,7 @@ export default function AuditWorkspacePage() {
             <ProcessSidebarNav
               processes={groupedProcesses}
               activeProcessCode={activeProcessCode}
+              progress={scoredByProcess}
               onJump={scrollToProcess}
             />
           ) : null}
@@ -946,45 +954,45 @@ export default function AuditWorkspacePage() {
               aria-labelledby="workspace-tab-scope"
               hidden={activeTab !== "scope"}
             >
-            <PageSection
-              title="1. Scope & requirements by process"
-              eyebrow="Execution"
-              description="Each process panel now isolates scope settings, density controls, and requirement scoring to keep work focused."
-              action={
-                <Button variant="secondary" onClick={() => void saveSectionNow("assessments")} disabled={!canEdit}>
-                  <Layers3 className="size-4" /> Save assessments
-                </Button>
-              }
-            >
-              <div className="grid gap-4">
-                {groupedProcesses.map((group: any) => (
-                  <ProcessPanel
-                    key={group.processCode}
-                    group={group}
-                    workspace={workspace}
-                    processUi={{ openProcessByCode, setOpenProcessByCode, panelDensityByProcess }}
-                    scopeState={{ scopeEdits, setScopeEdits }}
-                    assessmentState={{
-                      edits,
-                      setEdits,
-                      openHistoryByAssessment,
-                      historyByAssessment,
-                      loadingHistoryByAssessment,
-                      noteDraftByAssessment,
-                      setNoteDraftByAssessment,
-                    }}
-                    permissions={{ canManageScopeTargets, canEdit }}
-                    actions={{
-                      updatePanelDensity,
-                      toggleAssessmentHistory,
-                      addAssessmentNote,
-                      requestScopeAutosave: () => autosave.requestSave("scope"),
-                      requestAssessmentAutosave: () => autosave.requestSave("assessments"),
-                    }}
-                  />
-                ))}
-              </div>
-            </PageSection>
+              <PageSection
+                title="1. Scope & requirements by process"
+                eyebrow="Execution"
+                description="Each process panel now isolates scope settings, density controls, and requirement scoring to keep work focused."
+                action={
+                  <Button variant="secondary" onClick={() => void saveSectionNow("assessments")} disabled={!canEdit}>
+                    <Layers3 className="size-4" /> Save assessments
+                  </Button>
+                }
+              >
+                <div className="grid gap-4">
+                  {groupedProcesses.map((group: any) => (
+                    <ProcessPanel
+                      key={group.processCode}
+                      group={group}
+                      workspace={workspace}
+                      processUi={{ openProcessByCode, setOpenProcessByCode, panelDensityByProcess }}
+                      scopeState={{ scopeEdits, setScopeEdits }}
+                      assessmentState={{
+                        edits,
+                        setEdits,
+                        openHistoryByAssessment,
+                        historyByAssessment,
+                        loadingHistoryByAssessment,
+                        noteDraftByAssessment,
+                        setNoteDraftByAssessment,
+                      }}
+                      permissions={{ canManageScopeTargets, canEdit }}
+                      actions={{
+                        updatePanelDensity,
+                        toggleAssessmentHistory,
+                        addAssessmentNote,
+                        requestScopeAutosave: () => autosave.requestSave("scope"),
+                        requestAssessmentAutosave: () => autosave.requestSave("assessments"),
+                      }}
+                    />
+                  ))}
+                </div>
+              </PageSection>
             </div>
 
             <div
@@ -1045,7 +1053,12 @@ export default function AuditWorkspacePage() {
       </PageShell>
 
       {activeTab === "scope" ? (
-        <ProcessMobileNav processes={groupedProcesses} activeProcessCode={activeProcessCode} onJump={scrollToProcess} />
+        <ProcessMobileNav
+          processes={groupedProcesses}
+          activeProcessCode={activeProcessCode}
+          progress={scoredByProcess}
+          onJump={scrollToProcess}
+        />
       ) : null}
     </>
   );

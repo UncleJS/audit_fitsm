@@ -4,6 +4,7 @@
 "use client";
 
 import { Fragment } from "react";
+import { scoredCountOf } from "../../lib/audit-snapshots";
 import { formatLocalTimestamp } from "../../lib/date-format";
 import { decodeHtmlEntities } from "../../lib/text-format";
 import { Badge } from "../ui/badge";
@@ -94,10 +95,7 @@ export default function ProcessPanel({
   const density = processUi.panelDensityByProcess[processCode] ?? "comfortable";
   const isCompact = density === "compact";
   const reqTextareaRows = isCompact ? 3 : 4;
-  const scoredCount = (group.requirements ?? []).filter((req) => {
-    const label = String(assessmentState.edits[String(req.assessmentId)]?.scoreLabel ?? req.scoreLabel ?? "").trim();
-    return label && label !== "Select …";
-  }).length;
+  const { scored: scoredCount, total: requirementCount } = scoredCountOf(group.requirements, assessmentState.edits);
   const scopeEdit = scopeState.scopeEdits[processCode] ?? {
     processCode,
     certGoalLevel: group.certGoalLevel != null ? String(group.certGoalLevel) : "2",
@@ -119,7 +117,7 @@ export default function ProcessPanel({
             <div className="flex flex-wrap items-center gap-2">
               <Badge>{processCode}</Badge>
               <Badge variant="info">
-                {scoredCount}/{(group.requirements ?? []).length} scored
+                {scoredCount}/{requirementCount} scored
               </Badge>
               <Badge variant="default">{decodeHtmlEntities(group.processAbbreviation)}</Badge>
             </div>

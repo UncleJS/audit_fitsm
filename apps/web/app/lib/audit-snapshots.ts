@@ -6,6 +6,9 @@
  * A section is dirty when its current snapshot differs from the last snapshot the server accepted.
  */
 
+/** Score label of a requirement that has not been scored yet. */
+export const UNSCORED_LABEL = "Select …";
+
 export type WorkspaceSection = "scope" | "assessments" | "details" | "conclusion";
 export const WORKSPACE_SECTIONS: WorkspaceSection[] = ["scope", "assessments", "details", "conclusion"];
 
@@ -34,7 +37,7 @@ export const normalizeAssessmentItems = (source: Record<string, any>): Assessmen
   Object.values(source)
     .map((item: any) => ({
       requirementCode: String(item.requirementCode ?? ""),
-      scoreLabel: String(item.scoreLabel ?? "Select …"),
+      scoreLabel: String(item.scoreLabel ?? UNSCORED_LABEL),
       commentText: String(item.commentText ?? ""),
       evidenceText: String(item.evidenceText ?? ""),
     }))
@@ -79,7 +82,7 @@ export const editsFromWorkspace = (data: any): WorkspaceEdits => {
     for (const req of group.requirements ?? []) {
       edits[String(req.assessmentId)] = {
         requirementCode: req.requirementCode,
-        scoreLabel: req.scoreLabel ?? "Select …",
+        scoreLabel: req.scoreLabel ?? UNSCORED_LABEL,
         commentText: req.commentText ?? "",
         evidenceText: req.evidenceText ?? "",
       };
@@ -134,4 +137,19 @@ export const conclusionPayloadFromSnapshot = (snapshot: string): { conclusionTex
   } catch {
     return { conclusionText: "" };
   }
+};
+
+export type ScoredCount = { scored: number; total: number };
+
+/** Counts requirements with a real score, preferring unsaved edits over the saved value. */
+export const scoredCountOf = (
+  requirements: Array<{ assessmentId: unknown; scoreLabel?: string | null }> | null | undefined,
+  edits: Record<string, { scoreLabel?: string } | undefined>,
+): ScoredCount => {
+  const list = requirements ?? [];
+  const scored = list.filter((req) => {
+    const label = String(edits[String(req.assessmentId)]?.scoreLabel ?? req.scoreLabel ?? "").trim();
+    return label !== "" && label !== UNSCORED_LABEL;
+  }).length;
+  return { scored, total: list.length };
 };
