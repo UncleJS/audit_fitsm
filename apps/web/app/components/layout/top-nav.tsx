@@ -20,7 +20,7 @@ export default function TopNav() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/80 bg-surface/85 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <Link
           href="/clients"
           className="flex items-center gap-3 rounded-2xl text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"

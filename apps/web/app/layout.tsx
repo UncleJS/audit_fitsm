@@ -15,6 +15,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
+        {/* The app ships its own dark theme; stop the Dark Reader extension from rewriting SVGs, which breaks hydration. */}
+        <meta name="darkreader-lock" />
         {/* Applies the saved theme before first paint so the page does not flash the wrong theme. */}
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: constant inline script, no user input */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />

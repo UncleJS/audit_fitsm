@@ -151,6 +151,9 @@ const main = async () => {
   const firstGroup = workspace.groupedProcesses?.[0];
   const firstReq = firstGroup?.requirements?.[0];
   if (!firstGroup || !firstReq) fail("workspace has no assessment rows");
+  if (!String(firstReq.scoreGuidance?.["3"] ?? "").trim()) {
+    fail(`workspace requirement ${firstReq.requirementCode} has no score guidance for level 3`);
+  }
 
   // scope target update
   const scopeRes = await fetch(`${apiBase}/audits/${auditId}/scope-targets`, {

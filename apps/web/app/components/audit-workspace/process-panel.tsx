@@ -15,6 +15,7 @@ type Requirement = {
   requirementCode: string;
   requirementText: string;
   scoreLabel?: string;
+  scoreGuidance?: Record<string, string>;
 };
 
 type ProcessGroup = {
@@ -110,7 +111,7 @@ export default function ProcessPanel({
       data-process-panel
       data-process-code={processCode}
       tabIndex={-1}
-      className="scroll-mt-24"
+      className="scroll-mt-[calc(var(--ws-sticky,6rem)+1rem)]"
     >
       <CardContent className="space-y-4 p-0">
         <div className="flex flex-col gap-4 border-b border-border/80 px-5 py-5 lg:flex-row lg:items-start lg:justify-between">
@@ -264,6 +265,7 @@ export default function ProcessPanel({
                           </td>
                           <td className={isCompact ? "px-3 py-2" : undefined}>
                             <select
+                              className="score-select"
                               aria-label={`Score for ${req.requirementCode}`}
                               value={edit.scoreLabel}
                               disabled={!permissions.canEdit}
@@ -275,11 +277,16 @@ export default function ProcessPanel({
                               }
                               onBlur={() => actions.requestAssessmentAutosave?.()}
                             >
-                              {(workspace.dropdowns?.scoreOptions ?? []).map((score) => (
-                                <option key={score.label} value={score.label}>
-                                  {decodeHtmlEntities(score.label)}
-                                </option>
-                              ))}
+                              {(workspace.dropdowns?.scoreOptions ?? []).map((score) => {
+                                const label = decodeHtmlEntities(score.label);
+                                const guidance = req.scoreGuidance?.[score.label];
+                                const text = guidance ? decodeHtmlEntities(guidance) : "";
+                                return (
+                                  <option key={score.label} value={score.label} title={text || undefined}>
+                                    {text ? `${label} – ${text}` : label}
+                                  </option>
+                                );
+                              })}
                             </select>
                           </td>
                           <td className={isCompact ? "px-3 py-2" : undefined}>

@@ -11,7 +11,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
     <>
       <SessionKeepalive />
       <TopNav />
-      <div className="mx-auto w-full max-w-[1664px] px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full px-4 py-4 sm:px-6 lg:px-8">
         <div className="app-page-canvas min-h-[calc(100vh-12rem)] rounded-[32px] border border-border/60">
           {children}
         </div>

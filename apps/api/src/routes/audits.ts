@@ -850,6 +850,23 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
         [auditId],
       );
 
+      const [guidanceRows] = await db.query<RowDataPacket[]>(
+        `SELECT DISTINCT rlg.requirement_id, cs.label, rlg.guidance_text
+       FROM requirement_level_guidance rlg
+       JOIN capability_scores cs ON cs.id = rlg.capability_score_id AND cs.archived_UTC IS NULL
+       JOIN audit_assessments aa
+         ON aa.requirement_id = rlg.requirement_id AND aa.audit_id = ? AND aa.archived_UTC IS NULL
+       WHERE rlg.archived_UTC IS NULL`,
+        [auditId],
+      );
+      const guidanceByRequirement = new Map<number, Record<string, string>>();
+      for (const row of guidanceRows) {
+        const requirementId = Number(row.requirement_id);
+        const entry = guidanceByRequirement.get(requirementId) ?? {};
+        entry[String(row.label)] = String(row.guidance_text);
+        guidanceByRequirement.set(requirementId, entry);
+      }
+
       const groups = new Map<string, any>();
 
       for (const row of assessmentRows) {
@@ -875,6 +892,7 @@ export const registerAuditRoutes = (app: AppBase): AppBase =>
           requirementText: row.requirement_text,
           scoreLabel: row.score_label ?? "Select …",
           scoreNumeric: row.score_numeric,
+          scoreGuidance: guidanceByRequirement.get(Number(row.requirement_id)) ?? {},
           commentText: row.comment_text,
           evidenceText: row.evidence_text,
           updatedAt: row.updated_UTC,

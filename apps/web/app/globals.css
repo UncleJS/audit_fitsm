@@ -169,7 +169,7 @@
   }
 
   .container {
-    @apply mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8;
+    @apply mx-auto w-full px-4 py-6 sm:px-6 lg:px-8;
   }
 
   .grid {
@@ -199,3 +199,54 @@
     background-color: var(--primary-hover);
   }
 }
+
+/* Score dropdown: option texts carry long FitSM guidance. Where supported (customizable select), the open list
+   wraps text and stays inside the viewport; other browsers keep the native list. */
+.score-select {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@supports (appearance: base-select) {
+  .score-select,
+  .score-select::picker(select) {
+    appearance: base-select;
+  }
+
+  .score-select::picker(select) {
+    width: min(48rem, calc(100vw - 2rem));
+    max-height: min(70vh, 40rem);
+    overflow-y: auto;
+    margin-block: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 0.75rem;
+    background: var(--color-surface);
+    color: var(--color-fg);
+    box-shadow: 0 16px 40px rgb(0 0 0 / 0.35);
+    position-try-fallbacks: flip-inline, flip-block, flip-block flip-inline;
+  }
+
+  .score-select option {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    line-height: 1.4;
+  }
+
+  .score-select option:hover,
+  .score-select option:focus-visible {
+    background: var(--color-surface-3);
+  }
+
+  .score-select option:checked {
+    font-weight: 600;
+  }
+
+  .score-select option::checkmark {
+    display: none;
+  }
+}
+

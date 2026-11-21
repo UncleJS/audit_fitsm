@@ -6,6 +6,7 @@
 import { ArrowLeft, Download, FileText, Layers3, RotateCw, Save } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityPanel } from "../../../components/audit-workspace/activity-panel";
 import { ConclusionPanel } from "../../../components/audit-workspace/conclusion-panel";
@@ -63,6 +64,21 @@ const SECTION_SAVED: Record<WorkspaceSection, string> = {
   conclusion: "Conclusion saved.",
 };
 
+const WORKSPACE_TABS = [
+  { id: "scope", label: "Scope & requirements" },
+  { id: "exports", label: "Exports" },
+  { id: "activity", label: "Audit activity" },
+  { id: "details", label: "Audit details" },
+  { id: "conclusion", label: "Conclusion" },
+] as const;
+
+type WorkspaceTab = (typeof WORKSPACE_TABS)[number]["id"];
+
+const TAB_STORAGE_KEY = "audit_fitsm_workspace_tab";
+
+const isWorkspaceTab = (value: unknown): value is WorkspaceTab =>
+  WORKSPACE_TABS.some((tab) => tab.id === value);
+
 const parseAuditId = (raw: unknown): number | null => {
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
@@ -93,6 +109,9 @@ export default function AuditWorkspacePage() {
   const [openProcessByCode, setOpenProcessByCode] = useState<Record<string, boolean>>({});
   const [panelDensityByProcess, setPanelDensityByProcess] = useState<Record<string, "comfortable" | "compact">>({});
   const [activeProcessCode, setActiveProcessCode] = useState("");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("scope");
+  const [stickyOffset, setStickyOffset] = useState(0);
+  const stickyBarRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState("");
   const loadRequestRef = useRef(0);
@@ -274,6 +293,49 @@ export default function AuditWorkspacePage() {
       // ignore invalid or unavailable persisted state
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem(TAB_STORAGE_KEY);
+      if (isWorkspaceTab(stored)) setActiveTab(stored);
+    } catch {
+      // storage unavailable; default tab stays
+    }
+  }, []);
+
+  const selectTab = (tab: WorkspaceTab) => {
+    setActiveTab(tab);
+    try {
+      window.sessionStorage.setItem(TAB_STORAGE_KEY, tab);
+    } catch {
+      // storage unavailable; keep the in-memory choice
+    }
+  };
+
+  const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const index = WORKSPACE_TABS.findIndex((tab) => tab.id === activeTab);
+    let next = -1;
+    if (event.key === "ArrowRight") next = (index + 1) % WORKSPACE_TABS.length;
+    else if (event.key === "ArrowLeft") next = (index - 1 + WORKSPACE_TABS.length) % WORKSPACE_TABS.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = WORKSPACE_TABS.length - 1;
+    if (next < 0) return;
+    event.preventDefault();
+    const tab = WORKSPACE_TABS[next].id;
+    selectTab(tab);
+    document.getElementById(`workspace-tab-${tab}`)?.focus();
+  };
+
+  // Track the sticky save bar's height so the process sidebar can sit (and scroll) below it.
+  useEffect(() => {
+    const bar = stickyBarRef.current;
+    if (!bar || typeof ResizeObserver === "undefined") return;
+    const update = () => setStickyOffset(bar.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [loadState]);
 
   useEffect(() => {
     if (!auditId) {
@@ -810,7 +872,9 @@ export default function AuditWorkspacePage() {
           </div>
         </PageSection>
 
-        <div className="sticky top-4 z-30 mb-6 rounded-2xl border border-border/80 bg-surface/95 px-4 py-3 backdrop-blur lg:px-5">
+        <div
+          ref={stickyBarRef}
+          className="sticky top-4 z-30 rounded-2xl border border-border/80 bg-surface/95 px-4 py-3 backdrop-blur lg:px-5">
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -831,17 +895,57 @@ export default function AuditWorkspacePage() {
               onSaveConclusion={() => void saveSectionNow("conclusion")}
               onSaveAll={() => void saveAll()}
             />
+            <div
+              role="tablist"
+              aria-label="Audit sections"
+              className="-mx-1 flex gap-1 overflow-x-auto border-t border-border/80 px-1 pt-3"
+            >
+              {WORKSPACE_TABS.map((tab, index) => {
+                const selected = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    id={`workspace-tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls={`workspace-tabpanel-${tab.id}`}
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => selectTab(tab.id)}
+                    onKeyDown={onTabKeyDown}
+                    className={`shrink-0 rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                      selected
+                        ? "border-primary/60 bg-primary/10 text-accent"
+                        : "border-transparent text-fg-secondary hover:border-border hover:text-fg"
+                    }`}
+                  >
+                    {index + 1}. {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <ProcessSidebarNav
-            processes={groupedProcesses}
-            activeProcessCode={activeProcessCode}
-            onJump={scrollToProcess}
-          />
+        <div
+          style={{ "--ws-sticky": `${stickyOffset + 16}px` } as React.CSSProperties}
+          className={activeTab === "scope" ? "grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]" : "grid gap-6"}
+        >
+          {activeTab === "scope" ? (
+            <ProcessSidebarNav
+              processes={groupedProcesses}
+              activeProcessCode={activeProcessCode}
+              onJump={scrollToProcess}
+            />
+          ) : null}
 
-          <div className="grid gap-6">
+          <div className="grid min-w-0 gap-6">
+            <div
+              role="tabpanel"
+              id="workspace-tabpanel-scope"
+              aria-labelledby="workspace-tab-scope"
+              hidden={activeTab !== "scope"}
+            >
             <PageSection
               title="1. Scope & requirements by process"
               eyebrow="Execution"
@@ -881,37 +985,68 @@ export default function AuditWorkspacePage() {
                 ))}
               </div>
             </PageSection>
+            </div>
 
-            <ExportsPanel
-              pdfExports={pdfExports}
-              canExport={canExport}
-              downloadingExportId={downloadingExportId}
-              downloadPdfExport={downloadPdfExport}
-            />
+            <div
+              role="tabpanel"
+              id="workspace-tabpanel-exports"
+              aria-labelledby="workspace-tab-exports"
+              hidden={activeTab !== "exports"}
+            >
+              <ExportsPanel
+                pdfExports={pdfExports}
+                canExport={canExport}
+                downloadingExportId={downloadingExportId}
+                downloadPdfExport={downloadPdfExport}
+              />
+            </div>
 
-            <ActivityPanel workspace={workspace} />
+            <div
+              role="tabpanel"
+              id="workspace-tabpanel-activity"
+              aria-labelledby="workspace-tab-activity"
+              hidden={activeTab !== "activity"}
+            >
+              <ActivityPanel workspace={workspace} />
+            </div>
 
-            <DetailsPanel
-              workspace={workspace}
-              detailEdits={detailEdits}
-              setDetailEdits={setDetailEdits}
-              canEdit={canEdit}
-              saveSectionNow={saveSectionNow}
-              autosave={autosave}
-            />
+            <div
+              role="tabpanel"
+              id="workspace-tabpanel-details"
+              aria-labelledby="workspace-tab-details"
+              hidden={activeTab !== "details"}
+            >
+              <DetailsPanel
+                workspace={workspace}
+                detailEdits={detailEdits}
+                setDetailEdits={setDetailEdits}
+                canEdit={canEdit}
+                saveSectionNow={saveSectionNow}
+                autosave={autosave}
+              />
+            </div>
 
-            <ConclusionPanel
-              conclusionEdit={conclusionEdit}
-              setConclusionEdit={setConclusionEdit}
-              canLeadEdit={canLeadEdit}
-              saveSectionNow={saveSectionNow}
-              autosave={autosave}
-            />
+            <div
+              role="tabpanel"
+              id="workspace-tabpanel-conclusion"
+              aria-labelledby="workspace-tab-conclusion"
+              hidden={activeTab !== "conclusion"}
+            >
+              <ConclusionPanel
+                conclusionEdit={conclusionEdit}
+                setConclusionEdit={setConclusionEdit}
+                canLeadEdit={canLeadEdit}
+                saveSectionNow={saveSectionNow}
+                autosave={autosave}
+              />
+            </div>
           </div>
         </div>
       </PageShell>
 
-      <ProcessMobileNav processes={groupedProcesses} activeProcessCode={activeProcessCode} onJump={scrollToProcess} />
+      {activeTab === "scope" ? (
+        <ProcessMobileNav processes={groupedProcesses} activeProcessCode={activeProcessCode} onJump={scrollToProcess} />
+      ) : null}
     </>
   );
 }
